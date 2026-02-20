@@ -13,7 +13,7 @@ class SapComProxy {
     }
 
     __Get(name, params) {
-        if (this._IsInternalProperty(name)) {
+        if (SubStr(name, 1, 1) = "_") {
             if (this.HasOwnProp(name)) {
                 return this.GetOwnPropDesc(name).Value
             }
@@ -27,7 +27,7 @@ class SapComProxy {
     }
 
     __Set(name, params, value) {
-        if (this._IsInternalProperty(name)) {
+        if (SubStr(name, 1, 1) = "_") {
             throw PropertyError("Internal property is read-only.", -1, name)
         }
         if (params.Length > 0) {
@@ -36,10 +36,6 @@ class SapComProxy {
             return value
         }
         return this.InvokeSet(name, value)
-    }
-
-    _IsInternalProperty(name) {
-        return SubStr(name, 1, 1) = "_"
     }
 
     __Call(name, params) {
