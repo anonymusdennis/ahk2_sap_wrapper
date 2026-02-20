@@ -28,11 +28,7 @@ class SapComProxy {
 
     __Set(name, params, value) {
         if (this._IsInternalProperty(name)) {
-            if (!this.HasOwnProp(name)) {
-                throw PropertyError("Unknown internal property.", -1, name)
-            }
-            this.%name% := value
-            return value
+            throw PropertyError("Internal property is read-only.", -1, name)
         }
         if (params.Length > 0) {
             target := this.InvokeGet(name)
