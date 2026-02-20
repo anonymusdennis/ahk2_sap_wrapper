@@ -9,7 +9,7 @@ class GuiVComponent extends SapComProxy {
         get {
             return this.InvokeGet("Text")
         }
-        set(value) {
+        set {
             return this.InvokeSet("Text", value)
         }
     }
