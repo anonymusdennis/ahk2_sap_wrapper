@@ -13,7 +13,7 @@ class SapComProxy {
     }
 
     __Get(name, params) {
-        if (SubStr(name, 1, 1) = "_") {
+        if (this._IsInternalProperty(name)) {
             if (this.HasOwnProp(name)) {
                 return this.GetOwnPropDesc(name).Value
             }
@@ -27,7 +27,10 @@ class SapComProxy {
     }
 
     __Set(name, params, value) {
-        if (SubStr(name, 1, 1) = "_") {
+        if (this._IsInternalProperty(name)) {
+            if (!this.HasOwnProp(name)) {
+                throw PropertyError("Unknown internal property.", -1, name)
+            }
             this.DefineProp(name, {Value: value})
             return value
         }
@@ -37,6 +40,10 @@ class SapComProxy {
             return value
         }
         return this.InvokeSet(name, value)
+    }
+
+    _IsInternalProperty(name) {
+        return SubStr(name, 1, 1) = "_"
     }
 
     __Call(name, params) {
