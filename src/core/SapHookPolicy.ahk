@@ -13,6 +13,6 @@ class SapHookPolicy {
             . "Type: " typeName "`n"
             . "Member: " member "`n"
             . "Path: " path "`n"
-            . "LastError: " A_LastError)
+            . "LastError (may be unrelated for COM): " A_LastError)
     }
 }

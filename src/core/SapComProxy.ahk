@@ -1,6 +1,8 @@
 #Requires AutoHotkey v2.0
 
 class SapComProxy {
+    static _typeClassMap := ""
+
     __New(comObj, typeName := "GuiUnknown", path := "", policy := "", strict := false) {
         this._com := comObj
         this._typeName := typeName
@@ -91,27 +93,20 @@ class SapComProxy {
 
         typeName := SapTypeRegistry.DetectTypeName(value)
         childPath := this._BuildPath(member, op, args)
-
-        if (typeName = "GuiCollection") {
-            return GuiCollection(value, this._policy, this._strict, childPath)
+        if (!IsObject(SapComProxy._typeClassMap)) {
+            SapComProxy._typeClassMap := Map(
+                "GuiCollection", GuiCollection,
+                "GuiComponentCollection", GuiComponentCollection,
+                "GuiApplication", GuiApplication,
+                "GuiConnection", GuiConnection,
+                "GuiSession", GuiSession,
+                "GuiFrameWindow", GuiFrameWindow,
+                "GuiVComponent", GuiVComponent
+            )
         }
-        if (typeName = "GuiComponentCollection") {
-            return GuiComponentCollection(value, this._policy, this._strict, childPath)
-        }
-        if (typeName = "GuiApplication") {
-            return GuiApplication(value, this._policy, this._strict, childPath)
-        }
-        if (typeName = "GuiConnection") {
-            return GuiConnection(value, this._policy, this._strict, childPath)
-        }
-        if (typeName = "GuiSession") {
-            return GuiSession(value, this._policy, this._strict, childPath)
-        }
-        if (typeName = "GuiFrameWindow") {
-            return GuiFrameWindow(value, this._policy, this._strict, childPath)
-        }
-        if (typeName = "GuiVComponent") {
-            return GuiVComponent(value, this._policy, this._strict, childPath)
+        if (SapComProxy._typeClassMap.Has(typeName)) {
+            proxyClass := SapComProxy._typeClassMap[typeName]
+            return proxyClass(value, this._policy, this._strict, childPath)
         }
 
         return SapComProxy(value, typeName, childPath, this._policy, this._strict)
@@ -160,7 +155,8 @@ class SapComProxy {
     }
 
     _BuildError(op, member) {
-        return "SAP COM " op " failed: " this._typeName "." member " @ " this._path " (LastError=" A_LastError ")"
+        return "SAP COM " op " failed: " this._typeName "." member " @ " this._path
+            . " (LastError=" A_LastError ", may be unrelated for COM)"
     }
 
     _HandleError(op, member, args) {

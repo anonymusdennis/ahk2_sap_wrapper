@@ -9,7 +9,10 @@ app := GuiApplication(appCom, policy)
 con := app.Children[0]
 ses := con.Children[0]
 
-ses.FindById("wnd[0]/tbar[0]/okcd").Text := "/nSE16"
-ses.FindById("wnd[0]").SendVKey(0)
-
-MsgBox("System name: " ses.Info.SystemName)
+try {
+    ses.FindById("wnd[0]/tbar[0]/okcd").Text := "/nSE16"
+    ses.FindById("wnd[0]").SendVKey(0)
+    MsgBox("System name: " ses.Info.SystemName)
+} catch {
+    MsgBox("Demo failed while interacting with SAP GUI.")
+}
