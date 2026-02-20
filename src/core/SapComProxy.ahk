@@ -4,15 +4,21 @@ class SapComProxy {
     static _typeClassMap := ""
 
     __New(comObj, typeName := "GuiUnknown", path := "", policy := "", strict := false) {
-        this._com := comObj
-        this._typeName := typeName
-        this._path := path = "" ? typeName : path
-        this._policy := IsObject(policy) ? policy : SapHookPolicy()
-        this._strict := strict
-        this._allow := SapTypeRegistry.GetAllowlist(typeName)
+        this.DefineProp("_com", {Value: comObj})
+        this.DefineProp("_typeName", {Value: typeName})
+        this.DefineProp("_path", {Value: path = "" ? typeName : path})
+        this.DefineProp("_policy", {Value: IsObject(policy) ? policy : SapHookPolicy()})
+        this.DefineProp("_strict", {Value: strict})
+        this.DefineProp("_allow", {Value: SapTypeRegistry.GetAllowlist(typeName)})
     }
 
     __Get(name, params) {
+        if (SubStr(name, 1, 1) = "_") {
+            if (this.HasOwnProp(name)) {
+                return this.GetOwnPropDesc(name).Value
+            }
+            throw PropertyError("Unknown internal property.", -1, name)
+        }
         value := this.InvokeGet(name)
         if (params.Length > 0) {
             return value[params*]
@@ -21,6 +27,10 @@ class SapComProxy {
     }
 
     __Set(name, params, value) {
+        if (SubStr(name, 1, 1) = "_") {
+            this.DefineProp(name, {Value: value})
+            return value
+        }
         if (params.Length > 0) {
             target := this.InvokeGet(name)
             target[params*] := value
