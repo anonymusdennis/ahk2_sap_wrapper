@@ -31,7 +31,7 @@ class SapComProxy {
             if (!this.HasOwnProp(name)) {
                 throw PropertyError("Unknown internal property.", -1, name)
             }
-            this.DefineProp(name, {Value: value})
+            this.%name% := value
             return value
         }
         if (params.Length > 0) {
