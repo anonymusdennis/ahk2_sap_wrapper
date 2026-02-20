@@ -12,16 +12,16 @@ class SapComProxy {
         this._allow := SapTypeRegistry.GetAllowlist(typeName)
     }
 
-    __Get(name, params := unset) {
+    __Get(name, params) {
         value := this.InvokeGet(name)
-        if (IsSet(params) && params.Length > 0) {
+        if (params.Length > 0) {
             return value[params*]
         }
         return value
     }
 
-    __Set(name, value, params := unset) {
-        if (IsSet(params) && params.Length > 0) {
+    __Set(name, params, value) {
+        if (params.Length > 0) {
             target := this.InvokeGet(name)
             target[params*] := value
             return value
@@ -29,7 +29,7 @@ class SapComProxy {
         return this.InvokeSet(name, value)
     }
 
-    __Call(name, params*) {
+    __Call(name, params) {
         return this.InvokeCall(name, params*)
     }
 
