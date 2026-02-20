@@ -267,6 +267,5 @@ Also include an example of `session.Info.SystemName` access.
   - optional retry logic for transient failures
 
 
-for the first step please wait for the files i want to give to you as a help 
-th first is the official spa dcoumentation and the second a pseudocode implemantation in js-like code please note that that is in no way ahk2 code 
-please wait
+i have provided some documentation as well as a pseudocode list of all methods etc. that exist on saps com object. 
+these were generated using a python script and could serve as a template however make sure to correctly translate them to Autohotkey v 2.0 as they are pseudo-js
