@@ -18,6 +18,8 @@ class Sm30BulkLoader {
         this.lastFailure := ""
         this.fillMode := "page"
         this.verboseCellLogging := false
+        this.autoRecoverErrors := true
+        this.skipErrorButtonId := "wnd[0]/tbar[1]/btn[20]"
         this.scrollPauseMs := 30
         this.rowCreatePauseMs := 80
     }
@@ -69,6 +71,12 @@ class Sm30BulkLoader {
         if (this.policy.HasOwnProp("quiet")) {
             this.policy.quiet := quiet
         }
+        return this
+    }
+
+    SetErrorRecovery(enabled := true, skipButtonId := "wnd[0]/tbar[1]/btn[20]") {
+        this.autoRecoverErrors := enabled
+        this.skipErrorButtonId := skipButtonId
         return this
     }
 
@@ -276,13 +284,15 @@ class Sm30BulkLoader {
         this.session.FindById("wnd[0]").SendVKey(0)
         this._WaitNotBusy()
         this._RefreshTable()
+        this._RecoverFromSapErrors()
     }
 
     Save(saveButtonId := "wnd[0]/tbar[0]/btn[11]") {
         this._Log("INFO", "Save button=" saveButtonId)
         this.session.FindById(saveButtonId).Press()
         this._WaitNotBusy()
-        this._Log("INFO", "Save done")
+        skipped := this._RecoverFromSapErrors()
+        this._Log("INFO", "Save done skippedErrors=" skipped)
         return this
     }
 
@@ -553,6 +563,87 @@ class Sm30BulkLoader {
             }
             Sleep(10)
         }
+    }
+
+    _HasSapError() {
+        try {
+            sbar := this.session.FindById("wnd[0]/sbar")
+            msgText := Trim(sbar.Text)
+            if (msgText = "") {
+                return false
+            }
+            msgType := sbar.MessageType
+            if (msgType = "E" || msgType = "A") {
+                return true
+            }
+            if (InStr(msgText, "Meldungsnr.") || InStr(msgText, "Message no.")) {
+                return true
+            }
+        } catch {
+        }
+        return false
+    }
+
+    _IsSkipButtonAvailable(skipButtonId) {
+        try {
+            btn := this.session.FindById(skipButtonId)
+            return btn.Type = "GuiButton"
+        } catch {
+            return false
+        }
+    }
+
+    _LogSapMessage(context := "SAP message") {
+        try {
+            sbar := this.session.FindById("wnd[0]/sbar")
+            this._Log("WARN", context
+                . " type=" sbar.MessageType
+                . " id=" sbar.MessageId
+                . " number=" sbar.MessageNumber
+                . " text=" sbar.Text)
+        } catch {
+            this._Log("WARN", context " (status bar unavailable)")
+        }
+    }
+
+    _RecoverFromSapErrors() {
+        if (!this.autoRecoverErrors) {
+            return 0
+        }
+
+        skipCount := 0
+        guard := 0
+        while (guard < 1000) {
+            if (!this._HasSapError()) {
+                break
+            }
+            if (!this._IsSkipButtonAvailable(this.skipErrorButtonId)) {
+                this._LogSapMessage("Unresolved SAP message, skip button unavailable")
+                this.lastFailure := "SAP error and skip button unavailable"
+                throw Error(this.lastFailure)
+            }
+
+            this._LogSapMessage("Recovering SAP error")
+            this.session.FindById(this.skipErrorButtonId).Press()
+            this._WaitNotBusy()
+            Sleep(50)
+            skipCount += 1
+            guard += 1
+        }
+
+        if (this._HasSapError()) {
+            this._LogSapMessage("SAP error remains after skip recovery")
+            this.lastFailure := "SAP error remains after skip recovery"
+            throw Error(this.lastFailure)
+        }
+
+        if (skipCount > 0) {
+            this._Log("INFO", "Recovered from " skipCount " SAP error entries via skip button")
+            if (this.tableFindId != "") {
+                this._RefreshTable()
+            }
+        }
+        return skipCount
     }
 
     _ParseCsvLine(line, delimiter) {

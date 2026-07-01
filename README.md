@@ -82,3 +82,9 @@ Column `kind` values:
 - `Selected` — checkbox fields
 
 For tables with a non-standard toolbar button layout, pass explicit button IDs to `EnterMaintenance()`, `NewEntries()`, or `Save()`.
+
+Duplicate/error recovery during save uses the status bar message (`wnd[0]/sbar`) and skips invalid rows via `wnd[0]/tbar[1]/btn[20]` until no error remains:
+
+```ahk
+loader.SetErrorRecovery(true, "wnd[0]/tbar[1]/btn[20]")
+```

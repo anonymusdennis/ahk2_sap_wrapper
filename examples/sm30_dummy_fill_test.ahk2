@@ -8,6 +8,7 @@
 ; Logs are written to ../logs/ (gitignored).
 
 DEFAULT_ROW_COUNT := 60
+DUPLICATE_ROW_COUNT := 20
 VIEW_NAME := "/WUE/PFEPRUNTYPE"
 TABLE_ID := "wnd[0]/usr/tbl/WUE/SAPLMMC_PFEPTCTRL_/WUE/PFEPRUNTYPE"
 
@@ -39,7 +40,8 @@ preview := BuildPreviewText(rows, 5)
 failureDetail := ""
 loader := ""
 
-logger.Info("Dummy fill test runStamp=" runStamp " rows=" rowCount " view=" VIEW_NAME)
+logger.Info("Dummy fill test runStamp=" runStamp " rows=" rowCount
+    . " duplicateRows=" Min(DUPLICATE_ROW_COUNT, rowCount) " view=" VIEW_NAME)
 
 try {
     loader := Sm30BulkLoader.Attach(policy)
@@ -79,13 +81,39 @@ GeneratePfepDummyRows(count, runStamp := "") {
     }
 
     rows := []
+    duplicateTemplate := ""
+    duplicateCount := Min(DUPLICATE_ROW_COUNT, count)
+
     loop count {
         rowNumber := A_Index
         orgIndex := Mod(rowNumber - 1, SALES_ORGS.Length) + 1
         runTypeIndex := Mod(rowNumber - 1, PFEP_RUN_TYPES.Length) + 1
+
+        if (rowNumber = 1) {
+            matnrV := MakeUniqueMatnr("V", runStamp, rowNumber)
+            matnrB := MakeUniqueMatnr("B", runStamp, rowNumber + 1)
+            duplicateTemplate := [
+                SALES_ORGS[orgIndex],
+                matnrV,
+                matnrB,
+                PFEP_RUN_TYPES[runTypeIndex]
+            ]
+            rows.Push(duplicateTemplate)
+            continue
+        }
+
+        if (rowNumber <= duplicateCount) {
+            rows.Push([
+                duplicateTemplate[1],
+                duplicateTemplate[2],
+                duplicateTemplate[3],
+                duplicateTemplate[4]
+            ])
+            continue
+        }
+
         matnrV := MakeUniqueMatnr("V", runStamp, rowNumber)
         matnrB := MakeUniqueMatnr("B", runStamp, rowNumber + 1)
-
         rows.Push([
             SALES_ORGS[orgIndex],
             matnrV,
