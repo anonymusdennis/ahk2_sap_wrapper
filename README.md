@@ -2,6 +2,8 @@
 
 AutoHotkey v2 COM wrapper/proxy for SAP GUI Scripting with hookable call pipeline.
 
+**AI / contributors:** read [`programming-guide-must-use-for-all-ais.md`](programming-guide-must-use-for-all-ais.md) before changing code. This repo is intended to hold multiple SAP automation tools over time, not only SM30.
+
 ## Usage
 
 ```ahk
