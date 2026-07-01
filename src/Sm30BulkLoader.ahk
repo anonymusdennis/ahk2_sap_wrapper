@@ -169,7 +169,7 @@ class Sm30BulkLoader {
             this._RefreshTable()
             this._Log("INFO", "Row start absoluteRow=" absoluteRow " values=" SapLogFormat.Args(rowValues))
             this._EnsurePhysicalRow(absoluteRow)
-            visibleRow := this._SyncScrollForAbsoluteRow(absoluteRow)
+            visibleRow := this._EnsureRowReadyForFill(absoluteRow, columns)
             this._Log("INFO", "Row mapped absoluteRow=" absoluteRow " visibleRow=" visibleRow)
             this._WriteRow(visibleRow, absoluteRow, columns, rowValues)
             absoluteRow += 1
@@ -187,12 +187,9 @@ class Sm30BulkLoader {
             this._EnsurePhysicalRow(absoluteRow)
 
             remaining := totalRows - dataIndex + 1
-            visibleStart := this._SyncScrollForAbsoluteRow(absoluteRow)
-            visibleCount := this.table.VisibleRowCount
-            rowsOnPage := Min(visibleCount - visibleStart, remaining)
-            if (rowsOnPage <= 0) {
-                throw Error("Could not fit any rows on screen at absolute row " absoluteRow ".")
-            }
+            pagePlan := this._EnsurePageReadyForFill(absoluteRow, remaining, columns)
+            visibleStart := pagePlan["visibleStart"]
+            rowsOnPage := pagePlan["rowsOnPage"]
 
             absoluteEnd := absoluteRow + rowsOnPage - 1
             this._Log("INFO", "Fill page absoluteRows=" absoluteRow "-" absoluteEnd
@@ -200,10 +197,17 @@ class Sm30BulkLoader {
 
             this._FillPageColumnMajor(visibleStart, rowsOnPage, columns, rows, dataIndex, absoluteRow)
             lastVisibleRow := visibleStart + rowsOnPage - 1
-            this._CommitPage(lastVisibleRow, columns, absoluteEnd)
+            skipped := this._CommitPage(lastVisibleRow, columns, absoluteEnd)
 
             dataIndex += rowsOnPage
-            absoluteRow += rowsOnPage
+            if (skipped > 0) {
+                this._RefreshTable()
+                absoluteRow := this.table.RowCount
+                this._Log("INFO", "Resync after skipped entries absoluteRow=" absoluteRow
+                    . " dataIndex=" dataIndex)
+            } else {
+                absoluteRow += rowsOnPage
+            }
         }
 
         return totalRows
@@ -236,6 +240,9 @@ class Sm30BulkLoader {
                     . " value=" value)
             }
             cell := this._ResolveCell(visibleRowIndex, columnDef)
+            if (!this._IsCellChangeable(cell)) {
+                throw Error("Cell is not open for input")
+            }
             this._SetCellValue(cell, value, columnDef)
             if (this.verboseCellLogging) {
                 this._LogReadBack(cell, columnDef, cellPath)
@@ -255,8 +262,19 @@ class Sm30BulkLoader {
     _SyncScrollForAbsoluteRow(absoluteRowIndex) {
         this._RefreshTable()
         table := this.table
+        visibleCount := table.VisibleRowCount
         maxScroll := table.VerticalScrollbar.Maximum
         scrollPos := Min(absoluteRowIndex, maxScroll)
+
+        if (absoluteRowIndex - scrollPos >= visibleCount) {
+            scrollPos := absoluteRowIndex - visibleCount + 1
+            if (scrollPos < 0) {
+                scrollPos := 0
+            }
+            if (scrollPos > maxScroll) {
+                scrollPos := maxScroll
+            }
+        }
 
         if (scrollPos != table.VerticalScrollbar.Position) {
             this._Log("INFO", "Scroll to absoluteRow=" absoluteRowIndex " scrollPos=" scrollPos)
@@ -266,11 +284,120 @@ class Sm30BulkLoader {
             this._RefreshTable()
             table := this.table
             scrollPos := table.VerticalScrollbar.Position
+            visibleCount := table.VisibleRowCount
         }
 
         visibleRow := absoluteRowIndex - scrollPos
+        if (visibleRow < 0 || visibleRow >= visibleCount) {
+            this.lastFailure := "Visible row " visibleRow " out of bounds after scroll sync"
+                . " absoluteRow=" absoluteRowIndex
+                . " scrollPos=" scrollPos
+                . " visibleCount=" visibleCount
+            this._Log("ERROR", this.lastFailure)
+            throw Error(this.lastFailure)
+        }
+
         this._LogTableState("SyncScroll absoluteRow=" absoluteRowIndex " visibleRow=" visibleRow)
         return visibleRow
+    }
+
+    _EnsurePageReadyForFill(absoluteRow, remaining, columns) {
+        attempt := 0
+        targetAbsoluteRow := absoluteRow
+        while (attempt < 4) {
+            attempt += 1
+            visibleStart := this._SyncScrollForAbsoluteRow(targetAbsoluteRow)
+            visibleCount := this.table.VisibleRowCount
+            rowsOnPage := Min(visibleCount - visibleStart, remaining)
+            if (rowsOnPage <= 0) {
+                throw Error("Could not fit any rows on screen at absolute row " targetAbsoluteRow ".")
+            }
+            if (visibleStart + rowsOnPage > visibleCount) {
+                rowsOnPage := visibleCount - visibleStart
+            }
+
+            if (this._ValidatePageChangeable(visibleStart, rowsOnPage, columns, targetAbsoluteRow)) {
+                return Map("visibleStart", visibleStart, "rowsOnPage", rowsOnPage)
+            }
+
+            this._Log("WARN", "Page cells not writable at absoluteRow=" targetAbsoluteRow
+                . " attempt=" attempt " rowCount=" this.table.RowCount)
+            this._RefreshTable()
+            targetAbsoluteRow := this.table.RowCount
+        }
+
+        this.lastFailure := "Target page cells are not open for input at absolute row " absoluteRow
+        throw Error(this.lastFailure)
+    }
+
+    _EnsureRowReadyForFill(absoluteRow, columns) {
+        attempt := 0
+        targetAbsoluteRow := absoluteRow
+        while (attempt < 4) {
+            attempt += 1
+            visibleRow := this._SyncScrollForAbsoluteRow(targetAbsoluteRow)
+            if (this._ValidatePageChangeable(visibleRow, 1, columns, targetAbsoluteRow)) {
+                return visibleRow
+            }
+            this._Log("WARN", "Row cells not writable at absoluteRow=" targetAbsoluteRow
+                . " attempt=" attempt)
+            this._RefreshTable()
+            targetAbsoluteRow := this.table.RowCount
+        }
+
+        this.lastFailure := "Target row cells are not open for input at absolute row " absoluteRow
+        throw Error(this.lastFailure)
+    }
+
+    _ValidatePageChangeable(visibleStartRow, rowCount, columns, absoluteStartRow) {
+        loop rowCount {
+            visibleRow := visibleStartRow + A_Index - 1
+            absoluteRowIndex := absoluteStartRow + A_Index - 1
+            for columnDef in columns {
+                cellPath := this._BuildCellPath(visibleRow, columnDef)
+                try {
+                    cell := this._ResolveCell(visibleRow, columnDef)
+                    if (!this._IsCellChangeable(cell)) {
+                        this._Log("WARN", "Cell not changeable absoluteRow=" absoluteRowIndex
+                            . " visibleRow=" visibleRow
+                            . " column=" columnDef.index
+                            . " path=" cellPath)
+                        return false
+                    }
+                } catch {
+                    this._Log("WARN", "Cell not reachable absoluteRow=" absoluteRowIndex
+                        . " visibleRow=" visibleRow
+                        . " column=" columnDef.index
+                        . " path=" cellPath)
+                    return false
+                }
+            }
+        }
+        return true
+    }
+
+    _IsCellChangeable(cell) {
+        try {
+            changeable := cell.Changeable
+            return (changeable = true || changeable = 1 || changeable = -1)
+        } catch {
+            return false
+        }
+    }
+
+    _PressEnterAfterRecovery(visibleRowIndex := -1) {
+        this._Log("INFO", "Enter after error recovery")
+        if (this.columns.Length > 0 && visibleRowIndex >= 0) {
+            try {
+                lastColumnDef := this.columns[this.columns.Length]
+                cell := this._ResolveCell(visibleRowIndex, lastColumnDef)
+                cell.SetFocus()
+            } catch {
+            }
+        }
+        this.session.FindById("wnd[0]").SendVKey(0)
+        this._WaitNotBusy()
+        this._RefreshTable()
     }
 
     _CommitPage(visibleRowIndex, columns, absoluteRowIndex := "") {
@@ -284,7 +411,11 @@ class Sm30BulkLoader {
         this.session.FindById("wnd[0]").SendVKey(0)
         this._WaitNotBusy()
         this._RefreshTable()
-        this._RecoverFromSapErrors()
+        skipped := this._RecoverFromSapErrors()
+        if (skipped > 0) {
+            this._PressEnterAfterRecovery(visibleRowIndex)
+        }
+        return skipped
     }
 
     Save(saveButtonId := "wnd[0]/tbar[0]/btn[11]") {
@@ -292,6 +423,9 @@ class Sm30BulkLoader {
         this.session.FindById(saveButtonId).Press()
         this._WaitNotBusy()
         skipped := this._RecoverFromSapErrors()
+        if (skipped > 0) {
+            this._PressEnterAfterRecovery()
+        }
         this._Log("INFO", "Save done skippedErrors=" skipped)
         return this
     }
@@ -437,6 +571,9 @@ class Sm30BulkLoader {
                     . " path=" cellPath
                     . " value=" value)
                 cell := this._ResolveCell(visibleRowIndex, columnDef)
+                if (!this._IsCellChangeable(cell)) {
+                    throw Error("Cell is not open for input")
+                }
                 cell.SetFocus()
                 this._SetCellValue(cell, value, columnDef)
                 this._LogReadBack(cell, columnDef, cellPath)
