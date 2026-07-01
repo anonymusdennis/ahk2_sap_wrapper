@@ -28,82 +28,82 @@ class Sm30BulkImportGui {
     }
 
     _BuildExcelWindow() {
-        gui := Gui("+Resize", "SM30 Bulk Import — Load Excel")
-        gui.SetFont("s10", "Segoe UI")
-        gui.OnEvent("Close", ObjBindMethod(this, "_OnExcelClose"))
-        gui.OnEvent("Size", ObjBindMethod(this, "_OnExcelResize"))
+        excelWin := Gui("+Resize", "SM30 Bulk Import — Load Excel")
+        excelWin.SetFont("s10", "Segoe UI")
+        excelWin.OnEvent("Close", ObjBindMethod(this, "_OnExcelClose"))
+        excelWin.OnEvent("Size", ObjBindMethod(this, "_OnExcelResize"))
 
-        gui.Add("Text", "w620", "Import customizing data from Excel into SAP SM30 maintenance views.")
-        gui.Add("Text", "w620 cGray", "Select a workbook, choose the worksheet and target table, preview the data,"
+        excelWin.Add("Text", "w620", "Import customizing data from Excel into SAP SM30 maintenance views.")
+        excelWin.Add("Text", "w620 cGray", "Select a workbook, choose the worksheet and target table, preview the data,"
             . " then test one row in SAP before starting the full import.")
 
-        gui.Add("GroupBox", "xm w640 h72 Section", "Excel file")
-        gui.Add("Text", "xs+20 ys+20 w70", "File:")
-        this.excelPathEdit := gui.Add("Edit", "x+0 w470 ReadOnly", "")
-        browseBtn := gui.Add("Button", "x+8 w80", "Browse...")
+        excelWin.Add("GroupBox", "xm w640 h72 Section", "Excel file")
+        excelWin.Add("Text", "xs+20 ys+20 w70", "File:")
+        this.excelPathEdit := excelWin.Add("Edit", "x+0 w470 ReadOnly", "")
+        browseBtn := excelWin.Add("Button", "x+8 w80", "Browse...")
         browseBtn.OnEvent("Click", ObjBindMethod(this, "_BrowseExcelFile"))
 
-        gui.Add("GroupBox", "xm w640 h120 Section", "Import mapping")
-        gui.Add("Text", "xs+20 ys+20 w110", "Worksheet:")
-        this.worksheetCombo := gui.Add("DropDownList", "x+0 w500 Choose1 Disabled", ["(select a file first)"])
+        excelWin.Add("GroupBox", "xm w640 h120 Section", "Import mapping")
+        excelWin.Add("Text", "xs+20 ys+20 w110", "Worksheet:")
+        this.worksheetCombo := excelWin.Add("DropDownList", "x+0 w500 Choose1 Disabled", ["(select a file first)"])
         this.worksheetCombo.OnEvent("Change", ObjBindMethod(this, "_OnWorksheetChanged"))
 
-        gui.Add("Text", "xs+20 y+12 w110", "SM30 table:")
+        excelWin.Add("Text", "xs+20 y+12 w110", "SM30 table:")
         tableLabels := Sm30TableCatalog.GetLabels()
-        this.tableCombo := gui.Add("DropDownList", "x+0 w500 Choose1", tableLabels)
+        this.tableCombo := excelWin.Add("DropDownList", "x+0 w500 Choose1", tableLabels)
         this.tableCombo.OnEvent("Change", ObjBindMethod(this, "_OnTableChanged"))
 
-        gui.Add("GroupBox", "xm w640 h220 Section", "Preview")
-        this.rowCountText := gui.Add("Text", "xs+20 ys+20 w600", "Rows loaded: 0")
-        this.previewEdit := gui.Add("Edit", "xs w600 h150 ReadOnly -VScroll", "(no data loaded)")
+        excelWin.Add("GroupBox", "xm w640 h220 Section", "Preview")
+        this.rowCountText := excelWin.Add("Text", "xs+20 ys+20 w600", "Rows loaded: 0")
+        this.previewEdit := excelWin.Add("Edit", "xs w600 h150 ReadOnly -VScroll", "(no data loaded)")
 
-        gui.Add("Text", "xm w640 cGray", "The test write uses the active SAP GUI session and does not save.")
-        testBtn := gui.Add("Button", "xm w200 h32", "Test first row in SAP")
+        excelWin.Add("Text", "xm w640 cGray", "The test write uses the active SAP GUI session and does not save.")
+        testBtn := excelWin.Add("Button", "xm w200 h32", "Test first row in SAP")
         testBtn.OnEvent("Click", ObjBindMethod(this, "_TestFirstRow"))
 
-        okBtn := gui.Add("Button", "x+240 w120 h32 Default", "OK")
+        okBtn := excelWin.Add("Button", "x+240 w120 h32 Default", "OK")
         okBtn.OnEvent("Click", ObjBindMethod(this, "_OnExcelOk"))
-        cancelBtn := gui.Add("Button", "x+8 w120 h32", "Cancel")
+        cancelBtn := excelWin.Add("Button", "x+8 w120 h32", "Cancel")
         cancelBtn.OnEvent("Click", ObjBindMethod(this, "_OnExcelClose"))
 
-        this.excelGui := gui
+        this.excelGui := excelWin
     }
 
     _BuildRunWindow() {
-        gui := Gui("+Resize +MinSize640x420", "SM30 Bulk Import — Run")
-        gui.SetFont("s10", "Segoe UI")
-        gui.OnEvent("Close", ObjBindMethod(this, "_OnRunClose"))
+        runWin := Gui("+Resize +MinSize640x420", "SM30 Bulk Import — Run")
+        runWin.SetFont("s10", "Segoe UI")
+        runWin.OnEvent("Close", ObjBindMethod(this, "_OnRunClose"))
 
-        gui.Add("Text", "w620", "Upload loaded Excel rows into the selected SAP session.")
-        this.runSummaryText := gui.Add("Text", "w620", "")
+        runWin.Add("Text", "w620", "Upload loaded Excel rows into the selected SAP session.")
+        this.runSummaryText := runWin.Add("Text", "w620", "")
 
-        gui.Add("GroupBox", "xm w640 h90 Section", "SAP session")
-        gui.Add("Text", "xs+20 ys+24 w110", "Session:")
-        this.sessionCombo := gui.Add("DropDownList", "x+0 w500 Choose1", ["(no SAP sessions found)"])
-        refreshBtn := gui.Add("Button", "xs+130 y+10 w120", "Refresh list")
+        runWin.Add("GroupBox", "xm w640 h90 Section", "SAP session")
+        runWin.Add("Text", "xs+20 ys+24 w110", "Session:")
+        this.sessionCombo := runWin.Add("DropDownList", "x+0 w500 Choose1", ["(no SAP sessions found)"])
+        refreshBtn := runWin.Add("Button", "xs+130 y+10 w120", "Refresh list")
         refreshBtn.OnEvent("Click", ObjBindMethod(this, "_RefreshSessions"))
 
-        gui.Add("GroupBox", "xm w640 h70 Section", "Options")
-        this.autoSaveCheck := gui.Add("CheckBox", "xs+20 ys+26 Checked0", "Press Save in SAP when import finishes")
+        runWin.Add("GroupBox", "xm w640 h70 Section", "Options")
+        this.autoSaveCheck := runWin.Add("CheckBox", "xs+20 ys+26 Checked0", "Press Save in SAP when import finishes")
 
-        gui.Add("GroupBox", "xm w640 h120 Section", "Progress")
-        this.progressBar := gui.Add("Progress", "xs+20 ys+26 w600", 0)
-        this.statusText := gui.Add("Text", "xs w600 h50 +Wrap", "Ready.")
+        runWin.Add("GroupBox", "xm w640 h120 Section", "Progress")
+        this.progressBar := runWin.Add("Progress", "xs+20 ys+26 w600", 0)
+        this.statusText := runWin.Add("Text", "xs w600 h50 +Wrap", "Ready.")
 
-        gui.Add("GroupBox", "xm w640 h90 Section", "Tools")
-        openLogBtn := gui.Add("Button", "xs+20 ys+24 w140", "Open log file")
+        runWin.Add("GroupBox", "xm w640 h90 Section", "Tools")
+        openLogBtn := runWin.Add("Button", "xs+20 ys+24 w140", "Open log file")
         openLogBtn.OnEvent("Click", ObjBindMethod(this, "_OpenLogFile"))
-        openLogFolderBtn := gui.Add("Button", "x+8 w140", "Open logs folder")
+        openLogFolderBtn := runWin.Add("Button", "x+8 w140", "Open logs folder")
         openLogFolderBtn.OnEvent("Click", ObjBindMethod(this, "_OpenLogFolder"))
-        backBtn := gui.Add("Button", "x+8 w140", "Back to Excel")
+        backBtn := runWin.Add("Button", "x+8 w140", "Back to Excel")
         backBtn.OnEvent("Click", ObjBindMethod(this, "_BackToExcel"))
 
-        this.startBtn := gui.Add("Button", "xm w160 h36 Default", "Start import")
+        this.startBtn := runWin.Add("Button", "xm w160 h36 Default", "Start import")
         this.startBtn.OnEvent("Click", ObjBindMethod(this, "_StartImport"))
-        runCancelBtn := gui.Add("Button", "x+8 w160 h36", "Close")
+        runCancelBtn := runWin.Add("Button", "x+8 w160 h36", "Close")
         runCancelBtn.OnEvent("Click", ObjBindMethod(this, "_OnRunClose"))
 
-        this.runGui := gui
+        this.runGui := runWin
     }
 
     _ResetExcelWindow() {
@@ -422,7 +422,7 @@ class Sm30BulkImportGui {
         this.excelGui.Show()
     }
 
-    _OnExcelResize(gui, minMax, width, height, *) {
+    _OnExcelResize(senderGui, minMax, width, height, *) {
         if (minMax = -1) {
             return
         }
