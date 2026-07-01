@@ -1,6 +1,7 @@
-#Requires AutoHotkey v2.0
+#Requires AutoHotkey v2.1
 
 #Include Sm30BulkLoader.ahk
+#Include Sm30AppPaths.ahk
 #Include Sm30TableCatalog.ahk
 #Include Sm30ExcelImport.ahk
 #Include Sm30SapSessions.ahk
@@ -9,7 +10,8 @@
 class Sm30BulkImportGui {
     __New() {
         this.policy := SapHookPolicy()
-        this.logger := SapFileLogger()
+        logPath := Sm30AppPaths.LogsDir() "\sm30_" FormatTime(, "yyyyMMdd_HHmmss") ".log"
+        this.logger := SapFileLogger(logPath)
         this.logPath := this.logger.logPath
         this.excelPath := ""
         this.sheetNames := []
@@ -19,6 +21,8 @@ class Sm30BulkImportGui {
         this.sessionEntries := []
         this.selectedSessionEntry := ""
         this.importRunning := false
+        this.excelLoading := false
+        this.pendingExcelPath := ""
         this._BuildExcelWindow()
         this._BuildRunWindow()
     }
@@ -36,14 +40,13 @@ class Sm30BulkImportGui {
         excelWin.OnEvent("Size", ObjBindMethod(this, "_OnExcelResize"))
 
         excelWin.Add("Text", "w620", "Import customizing data from Excel into SAP SM30 maintenance views.")
-        excelWin.Add("Text", "w620 cGray", "Select a workbook, choose the worksheet and target table, preview the data,"
-            . " then test one row in SAP before starting the full import.")
+        excelWin.Add("Text", "w620 cGray", "Table definitions live in config/tables/*.json next to this script or exe.")
 
         excelWin.Add("GroupBox", "xm w640 h72 Section", "Excel file")
         excelWin.Add("Text", "xs+20 ys+20 w70", "File:")
         this.excelPathEdit := excelWin.Add("Edit", "x+0 w470 ReadOnly", "")
-        browseBtn := excelWin.Add("Button", "x+8 w80", "Browse...")
-        browseBtn.OnEvent("Click", ObjBindMethod(this, "_BrowseExcelFile"))
+        this.browseBtn := excelWin.Add("Button", "x+8 w80", "Browse...")
+        this.browseBtn.OnEvent("Click", ObjBindMethod(this, "_BrowseExcelFile"))
 
         excelWin.Add("GroupBox", "xm w640 h120 Section", "Import mapping")
         excelWin.Add("Text", "xs+20 ys+20 w110", "Worksheet:")
@@ -58,19 +61,19 @@ class Sm30BulkImportGui {
         excelWin.Add("GroupBox", "xm w640 h90 Section", "SAP session")
         excelWin.Add("Text", "xs+20 ys+24 w110", "Session:")
         this.sessionCombo := excelWin.Add("DropDownList", "x+0 w500 Choose1", ["(no SAP sessions found)"])
-        refreshSessionsBtn := excelWin.Add("Button", "xs+130 y+10 w120", "Refresh list")
-        refreshSessionsBtn.OnEvent("Click", ObjBindMethod(this, "_RefreshSessions"))
+        this.refreshSessionsBtn := excelWin.Add("Button", "xs+130 y+10 w120", "Refresh list")
+        this.refreshSessionsBtn.OnEvent("Click", ObjBindMethod(this, "_RefreshSessions"))
 
         excelWin.Add("GroupBox", "xm w640 h220 Section", "Preview")
         this.rowCountText := excelWin.Add("Text", "xs+20 ys+20 w600", "Rows loaded: 0")
         this.previewEdit := excelWin.Add("Edit", "xs w600 h150 ReadOnly -VScroll", "(no data loaded)")
 
         excelWin.Add("Text", "xm w640 cGray", "Test write uses the selected SAP session above and does not save.")
-        testBtn := excelWin.Add("Button", "xm w200 h32", "Test first row in SAP")
-        testBtn.OnEvent("Click", ObjBindMethod(this, "_TestFirstRow"))
+        this.testBtn := excelWin.Add("Button", "xm w200 h32", "Test first row in SAP")
+        this.testBtn.OnEvent("Click", ObjBindMethod(this, "_TestFirstRow"))
 
-        okBtn := excelWin.Add("Button", "x+240 w120 h32 Default", "OK")
-        okBtn.OnEvent("Click", ObjBindMethod(this, "_OnExcelOk"))
+        this.okBtn := excelWin.Add("Button", "x+240 w120 h32 Default", "OK")
+        this.okBtn.OnEvent("Click", ObjBindMethod(this, "_OnExcelOk"))
         cancelBtn := excelWin.Add("Button", "x+8 w120 h32", "Cancel")
         cancelBtn.OnEvent("Click", ObjBindMethod(this, "_OnExcelClose"))
 
@@ -108,6 +111,29 @@ class Sm30BulkImportGui {
         this.runGui := runWin
     }
 
+    _SetExcelLoading(isLoading, message := "") {
+        this.excelLoading := isLoading
+        this.browseBtn.Enabled := !isLoading
+        this.testBtn.Enabled := !isLoading
+        this.okBtn.Enabled := !isLoading
+        this.tableCombo.Enabled := !isLoading
+        this.refreshSessionsBtn.Enabled := !isLoading
+        if (!isLoading && this.sheetNames.Length > 1) {
+            this.worksheetCombo.Enabled := true
+        } else if (isLoading) {
+            this.worksheetCombo.Enabled := false
+        }
+        if (!isLoading && this.sessionEntries.Length > 0) {
+            this.sessionCombo.Enabled := true
+        } else if (isLoading) {
+            this.sessionCombo.Enabled := false
+        }
+        if (isLoading) {
+            this.rowCountText.Value := message != "" ? message : "Loading..."
+            this.previewEdit.Value := "Reading Excel... please wait."
+        }
+    }
+
     _ResetExcelWindow() {
         this.excelPath := ""
         this.sheetNames := []
@@ -122,27 +148,50 @@ class Sm30BulkImportGui {
     }
 
     _BrowseExcelFile(*) {
-        selectedPath := FileSelect("1", A_ScriptDir "\data", "Select Excel file", "Excel (*.xlsx; *.xlsm; *.xls)")
+        if (this.excelLoading) {
+            return
+        }
+        dataDir := Sm30AppPaths.DataDir()
+        if (!DirExist(dataDir)) {
+            DirCreate(dataDir)
+        }
+        selectedPath := FileSelect("1", dataDir, "Select Excel file", "Excel (*.xlsx; *.xlsm; *.xls)")
         if (selectedPath = "") {
             return
         }
-        this.excelPath := selectedPath
-        this.excelPathEdit.Value := selectedPath
+        this.pendingExcelPath := selectedPath
+        this._SetExcelLoading(true, "Opening Excel workbook...")
+        SetTimer(ObjBindMethod(this, "_ProcessExcelFileLoad"), -1)
+    }
+
+    _ProcessExcelFileLoad() {
+        selectedPath := this.pendingExcelPath
+        this.pendingExcelPath := ""
+        if (selectedPath = "") {
+            this._SetExcelLoading(false)
+            return
+        }
+
+        columnCount := this.tableDef.columns.Length
         try {
-            this.sheetNames := Sm30ExcelImport.ListSheetNames(selectedPath)
+            result := Sm30ExcelImport.LoadWorkbook(selectedPath, "", columnCount, true)
+            this.excelPath := selectedPath
+            this.excelPathEdit.Value := selectedPath
+            this.sheetNames := result.sheetNames
+            this.selectedSheet := result.selectedSheet
+            this.rows := result.rows
+            this._SetWorksheetOptions(this.sheetNames, this.sheetNames.Length <= 1)
+            this._UpdatePreviewFromRows()
         } catch {
+            this.excelPath := ""
+            this.rows := []
+            this.excelPathEdit.Value := selectedPath
+            this.rowCountText.Value := "Rows loaded: 0"
+            this.previewEdit.Value := "Could not read Excel file."
             MsgBox("Could not read the selected Excel file.`n`nEnsure Microsoft Excel is installed.", "Excel import", "Icon!")
-            return
+        } finally {
+            this._SetExcelLoading(false)
         }
-
-        if (this.sheetNames.Length = 0) {
-            MsgBox("The selected workbook has no worksheets.", "Excel import", "Icon!")
-            return
-        }
-
-        this.selectedSheet := this.sheetNames[1]
-        this._SetWorksheetOptions(this.sheetNames, this.sheetNames.Length <= 1)
-        this._ReloadRows()
     }
 
     _SetWorksheetOptions(names, disabled := false) {
@@ -150,16 +199,21 @@ class Sm30BulkImportGui {
         for sheetName in names {
             this.worksheetCombo.Add([sheetName])
         }
-        this.worksheetCombo.Choose(1)
-        if (disabled) {
-            this.worksheetCombo.Enabled := false
-        } else {
-            this.worksheetCombo.Enabled := true
+        chooseIndex := 1
+        if (this.selectedSheet != "") {
+            loop names.Length {
+                if (names[A_Index] = this.selectedSheet) {
+                    chooseIndex := A_Index
+                    break
+                }
+            }
         }
+        this.worksheetCombo.Choose(chooseIndex)
+        this.worksheetCombo.Enabled := !disabled && !this.excelLoading
     }
 
     _OnWorksheetChanged(*) {
-        if (this.excelPath = "") {
+        if (this.excelPath = "" || this.excelLoading) {
             return
         }
         sheetName := this.worksheetCombo.Text
@@ -167,37 +221,53 @@ class Sm30BulkImportGui {
             return
         }
         this.selectedSheet := sheetName
-        this._ReloadRows()
+        this._ScheduleRowReload()
     }
 
     _OnTableChanged(*) {
         tableIndex := this.tableCombo.Value
         this.tableDef := Sm30TableCatalog.GetByIndex(tableIndex)
-        if (this.excelPath != "") {
-            this._ReloadRows()
+        if (this.excelPath != "" && !this.excelLoading) {
+            this._ScheduleRowReload()
         }
     }
 
-    _ReloadRows() {
-        if (this.excelPath = "" || !IsObject(this.tableDef)) {
+    _ScheduleRowReload() {
+        if (this.excelPath = "") {
             return
         }
-        columnCount := this.tableDef.columns.Length
+        this._SetExcelLoading(true, "Reading worksheet...")
+        SetTimer(ObjBindMethod(this, "_ProcessRowReload"), -1)
+    }
+
+    _ProcessRowReload() {
         try {
-            this.rows := Sm30ExcelImport.ReadRows(
-                this.excelPath,
-                this.selectedSheet,
-                columnCount,
-                true
-            )
+            this._ReloadRowsNow()
         } catch {
             this.rows := []
             this.rowCountText.Value := "Rows loaded: 0"
             this.previewEdit.Value := "Could not read worksheet data."
             MsgBox("Could not read rows from the selected worksheet.", "Excel import", "Icon!")
+        } finally {
+            this._SetExcelLoading(false)
+        }
+    }
+
+    _ReloadRowsNow() {
+        if (this.excelPath = "" || !IsObject(this.tableDef)) {
             return
         }
+        columnCount := this.tableDef.columns.Length
+        this.rows := Sm30ExcelImport.ReadRows(
+            this.excelPath,
+            this.selectedSheet,
+            columnCount,
+            true
+        )
+        this._UpdatePreviewFromRows()
+    }
 
+    _UpdatePreviewFromRows() {
         this.rowCountText.Value := "Rows loaded: " this.rows.Length
         if (this.rows.Length = 0) {
             this.previewEdit.Value := "No data rows found (header row is skipped automatically)."
@@ -207,6 +277,10 @@ class Sm30BulkImportGui {
     }
 
     _ValidateExcelStep() {
+        if (this.excelLoading) {
+            MsgBox("Excel file is still loading. Please wait.", "Excel import", "Icon!")
+            return false
+        }
         if (this.excelPath = "") {
             MsgBox("Select an Excel file first.", "Excel import", "Icon!")
             return false
@@ -275,6 +349,9 @@ class Sm30BulkImportGui {
     }
 
     _RefreshSessions(*) {
+        if (this.excelLoading) {
+            return
+        }
         this.sessionEntries := Sm30SapSessions.List(this.policy)
         labels := Sm30SapSessions.GetLabels(this.sessionEntries)
         this.sessionCombo.Delete()
@@ -288,7 +365,7 @@ class Sm30BulkImportGui {
             this.sessionCombo.Add([label])
         }
         this.sessionCombo.Choose(1)
-        this.sessionCombo.Enabled := true
+        this.sessionCombo.Enabled := !this.excelLoading
     }
 
     _TestFirstRow(*) {

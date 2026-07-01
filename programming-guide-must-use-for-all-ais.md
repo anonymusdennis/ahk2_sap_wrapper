@@ -215,7 +215,37 @@ Two-step flow works well:
 
 Excel reading requires **Microsoft Excel installed** (COM: `Excel.Application`). Regenerate sample: `python scripts/generate_sample_excel.py` → `examples/data/pfepruntype_sample.xlsx`.
 
-Add new customizing tables in `src/Sm30TableCatalog.ahk` (view name, table id, columns from recorder).
+Add new customizing tables via JSON in `config/tables/*.json` (see `examples/sm30/config/tables/pfepruntype.json`). Do not hardcode tables in `Sm30TableCatalog.ahk`.
+
+---
+
+## Excel import GUI — freeze fix
+
+Opening Excel via COM (`Excel.Application`) can take several seconds and **blocks the AHK thread**. If run directly in a button handler, the GUI appears frozen with no feedback.
+
+**Fix:**
+1. Show loading state immediately (`Reading Excel...`, disable buttons).
+2. Defer COM work with `SetTimer(ObjBindMethod(this, "_ProcessExcelLoad"), -1)` so the GUI repaints first.
+3. Open Excel only once per operation (`LoadWorkbook` lists sheets and reads rows in one session).
+4. Set `excel.ScreenUpdating := false` and `excel.EnableEvents := false`.
+
+---
+
+## Compiled exe layout
+
+When the launcher is compiled, **`A_ScriptDir` is the folder containing the exe**. Ship these next to the exe:
+
+```text
+MySm30Tool.exe
+config/tables/*.json
+config/app.json
+data/
+logs/            (created at runtime)
+```
+
+Libraries in `src/` are compiled into the exe. Config and data are **not** — they must sit beside the exe. Use `Sm30AppPaths.BaseDir()` / `TablesDir()` / `DataDir()` / `LogsDir()` — never hardcode `..\..\src` for runtime data.
+
+Launcher path: `examples/sm30/sm30_bulk_import_gui.ahk2`
 
 ---
 
@@ -242,7 +272,10 @@ Add new customizing tables in `src/Sm30TableCatalog.ahk` (view name, table id, c
 | `src/Sm30ExcelImport.ahk` | Excel COM reader |
 | `src/Sm30SapSessions.ahk` | List SAP sessions |
 | `src/core/SapFileLogger.ahk` | File logging + `LoggingSapHookPolicy` |
-| `examples/sm30_bulk_import_gui.ahk2` | Launch GUI |
+| `examples/sm30/sm30_bulk_import_gui.ahk2` | Launch GUI |
+| `examples/sm30/config/tables/*.json` | SM30 table definitions |
+| `src/Sm30AppPaths.ahk` | Resolves paths from `A_ScriptDir` (script or compiled exe) |
+| `src/Sm30JsonConfig.ahk` | Loads JSON table configs (requires AHK v2.1 `JsonLoad`) |
 | `examples/sm30_dummy_fill_test.ahk2` | Stress test with intentional duplicates |
 
 ---

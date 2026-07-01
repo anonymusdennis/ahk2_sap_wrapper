@@ -1,0 +1,12 @@
+#Requires AutoHotkey v2.1
+#Include ../../src/Sm30BulkImportGui.ahk
+
+; SM30 bulk import GUI launcher.
+; Layout next to this script (or compiled exe):
+;   config/tables/*.json
+;   config/app.json
+;   data/
+;   logs/
+
+app := Sm30BulkImportGui()
+app.Show()

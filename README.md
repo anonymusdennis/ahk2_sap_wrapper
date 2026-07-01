@@ -95,16 +95,30 @@ loader.SetErrorRecovery(true, "wnd[0]/tbar[1]/btn[20]")
 
 ## Excel import GUI
 
-Graphical tool for loading Excel data, testing one row in SAP, then running the bulk import with session selection and progress.
+Graphical tool for loading Excel data, testing one row in SAP, then running the bulk import with session selection and progress. Requires **AutoHotkey v2.1+** (JSON config loading).
 
 ```text
-examples/sm30_bulk_import_gui.ahk2
+examples/sm30/sm30_bulk_import_gui.ahk2
+```
+
+Folder layout (same layout next to the script **or** compiled `.exe`):
+
+```text
+examples/sm30/
+  sm30_bulk_import_gui.ahk2
+  config/
+    app.json
+    tables/
+      pfepruntype.json
+  data/
+    pfepruntype_sample.xlsx
+  logs/                  (created at runtime)
 ```
 
 Sample workbook:
 
 ```text
-examples/data/pfepruntype_sample.xlsx
+examples/sm30/data/pfepruntype_sample.xlsx
 ```
 
 Regenerate the sample file (requires Python + openpyxl):
@@ -113,11 +127,29 @@ Regenerate the sample file (requires Python + openpyxl):
 python scripts/generate_sample_excel.py
 ```
 
+### Add more SM30 tables
+
+Add a JSON file under `config/tables/` (one file per view). Example: `config/tables/pfepruntype.json`
+
+```json
+{
+  "id": "pfepruntype",
+  "label": "PFEP Run Type (/WUE/PFEPRUNTYPE)",
+  "viewName": "/WUE/PFEPRUNTYPE",
+  "tableId": "wnd[0]/usr/tbl/...",
+  "columns": [
+    { "index": 0, "kind": "Text", "prefix": "ctxt", "field": "...", "name": "VKORG" }
+  ]
+}
+```
+
+Column metadata comes from the SAP Script Recorder `findById` paths. Reload the GUI to pick up new files.
+
 **Step 1 — Load Excel**
-- Browse for `.xlsx` / `.xlsm` / `.xls` (requires Microsoft Excel installed)
+- Browse for `.xlsx` / `.xlsm` / `.xls` (requires Microsoft Excel installed; shows loading status while Excel opens)
 - Choose worksheet when the workbook has multiple sheets
 - Choose SAP session from dropdown (Refresh list)
-- Choose the SM30 customizing table
+- Choose the SM30 customizing table (from JSON configs)
 - Preview loaded rows
 - **Test first row in SAP** writes row 1 using the selected session (no save)
 
@@ -126,5 +158,3 @@ python scripts/generate_sample_excel.py
 - **Auto-save when finished** is off by default
 - Progress bar during import
 - Open log file / logs folder buttons
-
-Add more tables in `src/Sm30TableCatalog.ahk`.

@@ -30,7 +30,7 @@ ROWS = [
     ["E001", "V2607010039", "B2607010040", "A"],
 ]
 
-OUTPUT = Path(__file__).resolve().parents[1] / "examples" / "data" / "pfepruntype_sample.xlsx"
+OUTPUT = Path(__file__).resolve().parents[1] / "examples" / "sm30" / "data" / "pfepruntype_sample.xlsx"
 
 
 def main() -> None:

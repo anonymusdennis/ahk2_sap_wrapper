@@ -9,6 +9,7 @@ class SapFileLogger {
         }
         this.logPath := logPath
         SplitPath(this.logPath, , &dir)
+        this.logDir := dir
         if (dir != "") {
             DirCreate(dir)
         }

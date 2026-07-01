@@ -1,11 +1,24 @@
-#Requires AutoHotkey v2.0
+#Requires AutoHotkey v2.1
 
-; Known SM30 customizing views with column metadata for bulk import.
+#Include Sm30AppPaths.ahk
+#Include Sm30JsonConfig.ahk
+
+; Load SM30 table definitions from config/tables/*.json
 class Sm30TableCatalog {
+    static _cache := ""
+
     static GetAll() {
-        return [
-            Sm30TableCatalog._PfepRunType()
-        ]
+        if (IsObject(Sm30TableCatalog._cache)) {
+            return Sm30TableCatalog._cache
+        }
+        tablesDir := Sm30AppPaths.TablesDir()
+        Sm30TableCatalog._cache := Sm30JsonConfig.LoadAllFromDir(tablesDir)
+        return Sm30TableCatalog._cache
+    }
+
+    static Reload() {
+        Sm30TableCatalog._cache := ""
+        return Sm30TableCatalog.GetAll()
     }
 
     static GetLabels() {
@@ -33,19 +46,12 @@ class Sm30TableCatalog {
         return ""
     }
 
-    static _PfepRunType() {
-        return {
-            label: "PFEP Run Type (/WUE/PFEPRUNTYPE)",
-            viewName: "/WUE/PFEPRUNTYPE",
-            tableId: "wnd[0]/usr/tbl/WUE/SAPLMMC_PFEPTCTRL_/WUE/PFEPRUNTYPE",
-            description: "PFEP run type assignment per sales org and material numbers.",
-            columns: [
-                { index: 0, kind: "Text", prefix: "ctxt", field: "WUE/PFEPRUNTYPE-VKORG", name: "VKORG" },
-                { index: 1, kind: "Text", prefix: "txt", field: "WUE/PFEPRUNTYPE-MATNR_V", name: "MATNR_V" },
-                { index: 2, kind: "Text", prefix: "txt", field: "WUE/PFEPRUNTYPE-MATNR_B", name: "MATNR_B" },
-                { index: 3, kind: "Key", prefix: "cmb", field: "WUE/PFEPRUNTYPE-/WUE/PFEP_RUN_TYPE", name: "PFEP_RUN_TYPE" }
-            ],
-            excelHeaders: ["VKORG", "MATNR_V", "MATNR_B", "PFEP_RUN_TYPE"]
+    static FindById(tableId) {
+        for tableDef in Sm30TableCatalog.GetAll() {
+            if (tableDef.HasOwnProp("id") && tableDef.id = tableId) {
+                return tableDef
+            }
         }
+        return ""
     }
 }

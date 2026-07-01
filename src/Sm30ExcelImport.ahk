@@ -2,17 +2,24 @@
 
 ; Read Excel workbooks for SM30 bulk import via Excel COM automation.
 class Sm30ExcelImport {
-    static ListSheetNames(excelPath) {
+    static LoadWorkbook(excelPath, sheetName := "", columnCount := 0, hasHeader := true) {
         excel := ""
         workbook := ""
-        names := []
+        sheetNames := []
+        rows := []
+        selectedSheet := sheetName
         try {
-            excel := ComObject("Excel.Application")
-            excel.Visible := false
-            excel.DisplayAlerts := false
+            excel := Sm30ExcelImport._CreateExcelApp()
             workbook := excel.Workbooks.Open(excelPath, , true)
             loop workbook.Worksheets.Count {
-                names.Push(workbook.Worksheets(A_Index).Name)
+                sheetNames.Push(workbook.Worksheets(A_Index).Name)
+            }
+            if (selectedSheet = "") {
+                selectedSheet := sheetNames[1]
+            }
+            if (columnCount > 0) {
+                worksheet := Sm30ExcelImport._FindWorksheet(workbook, selectedSheet)
+                rows := Sm30ExcelImport._ReadWorksheetRows(worksheet, columnCount, hasHeader)
             }
         } catch {
             throw Error("Could not open Excel file: " excelPath)
@@ -20,48 +27,21 @@ class Sm30ExcelImport {
             Sm30ExcelImport._CloseWorkbook(workbook)
             Sm30ExcelImport._QuitExcel(excel)
         }
-        return names
+        return {
+            sheetNames: sheetNames,
+            selectedSheet: selectedSheet,
+            rows: rows
+        }
+    }
+
+    static ListSheetNames(excelPath) {
+        result := Sm30ExcelImport.LoadWorkbook(excelPath)
+        return result.sheetNames
     }
 
     static ReadRows(excelPath, sheetName, columnCount, hasHeader := true) {
-        excel := ""
-        workbook := ""
-        rows := []
-        try {
-            excel := ComObject("Excel.Application")
-            excel.Visible := false
-            excel.DisplayAlerts := false
-            workbook := excel.Workbooks.Open(excelPath, , true)
-            worksheet := Sm30ExcelImport._FindWorksheet(workbook, sheetName)
-            usedRows := worksheet.UsedRange.Rows.Count
-            startRow := hasHeader ? 2 : 1
-            if (usedRows < startRow) {
-                return rows
-            }
-
-            loop usedRows - startRow + 1 {
-                rowNumber := startRow + A_Index - 1
-                rowValues := []
-                hasData := false
-                loop columnCount {
-                    cellValue := worksheet.Cells(rowNumber, A_Index).Text
-                    cellText := Trim(String(cellValue))
-                    if (cellText != "") {
-                        hasData := true
-                    }
-                    rowValues.Push(cellText)
-                }
-                if (hasData) {
-                    rows.Push(rowValues)
-                }
-            }
-        } catch {
-            throw Error("Could not read Excel sheet '" sheetName "' from: " excelPath)
-        } finally {
-            Sm30ExcelImport._CloseWorkbook(workbook)
-            Sm30ExcelImport._QuitExcel(excel)
-        }
-        return rows
+        result := Sm30ExcelImport.LoadWorkbook(excelPath, sheetName, columnCount, hasHeader)
+        return result.rows
     }
 
     static PreviewRows(rows, maxLines := 5) {
@@ -75,6 +55,42 @@ class Sm30ExcelImport {
             lines.Push("... (" (rows.Length - previewCount) " more rows)")
         }
         return Sm30ExcelImport._JoinFields(lines, "`n")
+    }
+
+    static _CreateExcelApp() {
+        excel := ComObject("Excel.Application")
+        excel.Visible := false
+        excel.DisplayAlerts := false
+        excel.ScreenUpdating := false
+        excel.EnableEvents := false
+        return excel
+    }
+
+    static _ReadWorksheetRows(worksheet, columnCount, hasHeader) {
+        rows := []
+        usedRows := worksheet.UsedRange.Rows.Count
+        startRow := hasHeader ? 2 : 1
+        if (usedRows < startRow) {
+            return rows
+        }
+
+        loop usedRows - startRow + 1 {
+            rowNumber := startRow + A_Index - 1
+            rowValues := []
+            hasData := false
+            loop columnCount {
+                cellValue := worksheet.Cells(rowNumber, A_Index).Text
+                cellText := Trim(String(cellValue))
+                if (cellText != "") {
+                    hasData := true
+                }
+                rowValues.Push(cellText)
+            }
+            if (hasData) {
+                rows.Push(rowValues)
+            }
+        }
+        return rows
     }
 
     static _FindWorksheet(workbook, sheetName) {
