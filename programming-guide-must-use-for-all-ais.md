@@ -215,7 +215,7 @@ Two-step flow works well:
 
 Excel reading requires **Microsoft Excel installed** (COM: `Excel.Application`). Regenerate sample: `python scripts/generate_sample_excel.py` → `examples/data/pfepruntype_sample.xlsx`.
 
-Add new customizing tables via JSON in `config/tables/*.json` (see `examples/sm30/config/tables/pfepruntype.json`). Use `Sm30JsonParser` + `FileOpen(..., "UTF-8")` — do **not** rely on `FileRead(path, "UTF-8")` or `JsonLoad` (both fail on some v2.0 / v2.1-alpha builds). Parsed objects are rebuilt with `obj.%key%` assignment so `HasOwnProp()` works in `Sm30BulkLoader`.
+Add new customizing tables via JSON in `config/tables/*.json`. On v2.1-alpha, `{}` may behave like a Map — always build configs with `Object()` + `obj[key] := value`, then `_ToPlainObject()` so `HasOwnProp()` works in `Sm30BulkLoader`. Do not wrap JSON load in a bare `catch` that hides the real message.
 
 ---
 

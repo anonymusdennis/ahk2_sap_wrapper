@@ -12,22 +12,17 @@ class Sm30JsonConfig {
         }
         parser := Sm30JsonParser(jsonText)
         parsed := parser.Parse()
-        return Sm30JsonConfig._RebuildObject(parsed)
+        return Sm30JsonConfig._ToPlainObject(parsed)
     }
 
     static LoadFile(jsonPath) {
         if (!FileExist(jsonPath)) {
             throw Error("JSON file not found: " jsonPath)
         }
-        try {
-            jsonText := Sm30JsonConfig._ReadFileText(jsonPath)
-            tableDef := Sm30JsonConfig.LoadText(jsonText)
-            Sm30JsonConfig._ValidateTableDef(tableDef, jsonPath)
-            return tableDef
-        } catch {
-            detail := Sm30JsonParser.lastError != "" ? Sm30JsonParser.lastError : "LastError=" A_LastError
-            throw Error("Failed to load table config: " jsonPath "`n" detail)
-        }
+        jsonText := Sm30JsonConfig._ReadFileText(jsonPath)
+        tableDef := Sm30JsonConfig.LoadText(jsonText)
+        Sm30JsonConfig._ValidateTableDef(tableDef, jsonPath)
+        return tableDef
     }
 
     static LoadAllFromDir(tablesDir) {
@@ -37,7 +32,7 @@ class Sm30JsonConfig {
         }
         loop files tablesDir "\*.json", "F" {
             tableDef := Sm30JsonConfig.LoadFile(A_LoopFileFullPath)
-            if (!tableDef.HasOwnProp("id") || tableDef.id = "") {
+            if (!Sm30JsonConfig._HasProp(tableDef, "id") || tableDef.id = "") {
                 SplitPath(A_LoopFileFullPath, &baseName, , &ext)
                 tableDef.id := baseName
             }
@@ -50,6 +45,9 @@ class Sm30JsonConfig {
     }
 
     static _ReadFileText(path) {
+        if (FileGetSize(path) = 0) {
+            throw Error("Config file is empty: " path)
+        }
         file := ""
         try {
             file := FileOpen(path, "r", "UTF-8")
@@ -62,20 +60,24 @@ class Sm30JsonConfig {
             }
         }
         if (!IsObject(file)) {
-            throw Error("Could not open file for reading.")
+            throw Error("Could not open config file: " path)
         }
         content := file.Read()
         file.Close()
+        if (content = "") {
+            throw Error("Config file read returned no text: " path)
+        }
         return content
     }
 
     static _ValidateTableDef(tableDef, jsonPath) {
-        if (Type(tableDef) != "Object") {
-            throw Error("Root JSON value must be an object: " jsonPath)
+        valueType := Type(tableDef)
+        if (valueType != "Object") {
+            throw Error("Root JSON value must be an object, got '" valueType "': " jsonPath)
         }
         required := ["label", "viewName", "tableId", "columns"]
         for fieldName in required {
-            if (!tableDef.HasOwnProp(fieldName)) {
+            if (!Sm30JsonConfig._HasProp(tableDef, fieldName)) {
                 throw Error("Missing required field '" fieldName "' in " jsonPath)
             }
         }
@@ -84,32 +86,38 @@ class Sm30JsonConfig {
         }
     }
 
-    static _RebuildObject(value) {
+    static _HasProp(obj, name) {
+        valueType := Type(obj)
+        if (valueType = "Map") {
+            return obj.Has(name)
+        }
+        try {
+            return obj.HasOwnProp(name)
+        } catch {
+            return false
+        }
+    }
+
+    static _ToPlainObject(value) {
         valueType := Type(value)
         if (valueType = "Array") {
-            rebuilt := []
+            converted := []
             for item in value {
-                rebuilt.Push(Sm30JsonConfig._RebuildObject(item))
+                converted.Push(Sm30JsonConfig._ToPlainObject(item))
             }
-            return rebuilt
+            return converted
         }
-        if (valueType != "Object") {
-            return value
+        if (valueType = "Map" || valueType = "Object") {
+            converted := Object()
+            for key, item in value {
+                converted[key] := Sm30JsonConfig._ToPlainObject(item)
+            }
+            return converted
         }
-
-        rebuilt := {}
-        for key, item in value {
-            item := Sm30JsonConfig._RebuildObject(item)
-            Sm30JsonConfig._SetProperty(rebuilt, key, item)
-        }
-        return rebuilt
+        return value
     }
 
     static _SetProperty(obj, key, value) {
-        if (RegExMatch(key, "^[A-Za-z_]\w*$")) {
-            obj.%key% := value
-            return
-        }
         obj[key] := value
     }
 }
@@ -187,7 +195,7 @@ class Sm30JsonParser {
     }
 
     _ReadObject() {
-        obj := {}
+        obj := Object()
         this.pos += 1
         this._SkipWhitespace()
         if (this._PeekChar() = "}") {
@@ -202,7 +210,7 @@ class Sm30JsonParser {
                 this._Fail("Expected ':' in JSON object at position " this.pos)
             }
             this.pos += 1
-            Sm30JsonConfig._SetProperty(obj, key, this._ReadValue())
+            obj[key] := this._ReadValue()
             this._SkipWhitespace()
             ch := SubStr(this.text, this.pos, 1)
             if (ch = "}") {
@@ -333,6 +341,9 @@ class Sm30JsonParser {
         if (numText = "" || numText = "-") {
             this._Fail("Invalid JSON number at position " start)
         }
-        return Number(numText)
+        if (InStr(numText, ".")) {
+            return Float(numText)
+        }
+        return Integer(numText)
     }
 }
