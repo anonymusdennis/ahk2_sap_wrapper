@@ -17,6 +17,7 @@ class Sm30BulkLoader {
         this.logPath := ""
         this.lastFailure := ""
         this.lastSkipCount := 0
+        this.progressCallback := ""
         this.fillMode := "page"
         this.verboseCellLogging := false
         this.autoRecoverErrors := true
@@ -91,6 +92,11 @@ class Sm30BulkLoader {
         return this
     }
 
+    SetProgressCallback(callback) {
+        this.progressCallback := callback
+        return this
+    }
+
     OpenView(viewName) {
         this._Log("INFO", "OpenView start viewName=" viewName)
         wnd := this.session.FindById("wnd[0]")
@@ -146,6 +152,7 @@ class Sm30BulkLoader {
         this.columns := columns
         this._Log("INFO", "FillRows start rows=" rows.Length " mode=" this.fillMode " startAbsoluteRow=" startAbsoluteRow)
         this._LogColumns(columns)
+        this._ReportProgress(0, rows.Length, "Starting fill")
 
         wasQuiet := false
         if (this.fillMode = "page" && this.policy.HasOwnProp("quiet")) {
@@ -171,6 +178,7 @@ class Sm30BulkLoader {
         }
 
         this._Log("INFO", "FillRows done rows=" filledCount)
+        this._ReportProgress(filledCount, rows.Length, "Fill complete")
         return filledCount
     }
 
@@ -185,6 +193,7 @@ class Sm30BulkLoader {
             this._WriteRow(visibleRow, absoluteRow, columns, rowValues)
             skipped := this.lastSkipCount
             absoluteRow += 1 - skipped
+            this._ReportProgress(A_Index, rows.Length, "Row " A_Index " committed")
         }
         return rows.Length
     }
@@ -218,6 +227,7 @@ class Sm30BulkLoader {
                 this._Log("INFO", "Skipped " skipped " error entries; continue at absoluteRow="
                     . absoluteRow " dataIndex=" dataIndex)
             }
+            this._ReportProgress(dataIndex - 1, totalRows, "Page committed")
         }
 
         return totalRows
@@ -827,6 +837,16 @@ class Sm30BulkLoader {
             return
         }
         this.logger.Info(message)
+    }
+
+    _ReportProgress(completed, total, message := "") {
+        if (!IsObject(this.progressCallback)) {
+            return
+        }
+        try {
+            this.progressCallback.Call(completed, total, message)
+        } catch {
+        }
     }
 
     _WaitNotBusy() {

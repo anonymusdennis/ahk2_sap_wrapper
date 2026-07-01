@@ -7,7 +7,7 @@
 ; Optional CLI: sm30_dummy_fill_test.ahk2 120
 ; Logs are written to ../logs/ (gitignored).
 
-DEFAULT_ROW_COUNT := 60
+DEFAULT_ROW_COUNT := 400
 DUPLICATE_ROW_COUNT := 20
 VIEW_NAME := "/WUE/PFEPRUNTYPE"
 TABLE_ID := "wnd[0]/usr/tbl/WUE/SAPLMMC_PFEPTCTRL_/WUE/PFEPRUNTYPE"

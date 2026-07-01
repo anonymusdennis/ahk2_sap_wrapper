@@ -92,3 +92,38 @@ By default `OpenView()` maximizes the SAP window and expands the working pane to
 ```ahk
 loader.SetErrorRecovery(true, "wnd[0]/tbar[1]/btn[20]")
 ```
+
+## Excel import GUI
+
+Graphical tool for loading Excel data, testing one row in SAP, then running the bulk import with session selection and progress.
+
+```text
+examples/sm30_bulk_import_gui.ahk2
+```
+
+Sample workbook:
+
+```text
+examples/data/pfepruntype_sample.xlsx
+```
+
+Regenerate the sample file (requires Python + openpyxl):
+
+```text
+python scripts/generate_sample_excel.py
+```
+
+**Step 1 — Load Excel**
+- Browse for `.xlsx` / `.xlsm` / `.xls` (requires Microsoft Excel installed)
+- Choose worksheet when the workbook has multiple sheets
+- Choose the SM30 customizing table
+- Preview loaded rows
+- **Test first row in SAP** writes row 1 using the active SAP session (no save)
+
+**Step 2 — Run**
+- Pick SAP session from dropdown (Refresh list)
+- **Auto-save when finished** is off by default
+- Progress bar during import
+- Open log file / logs folder buttons
+
+Add more tables in `src/Sm30TableCatalog.ahk`.

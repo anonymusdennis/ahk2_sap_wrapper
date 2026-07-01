@@ -1,0 +1,10 @@
+#Requires AutoHotkey v2.0
+#Include ../src/Sm30BulkImportGui.ahk
+
+; GUI tool for Excel-driven SM30 bulk import.
+; Requires Microsoft Excel installed for reading .xlsx files.
+;
+; Example data: examples/data/pfepruntype_sample.xlsx
+
+app := Sm30BulkImportGui()
+app.Show()
