@@ -10,6 +10,7 @@ class Sm30BulkLoader {
         this.session := session
         this.policy := IsObject(policy) ? policy : SapHookPolicy()
         this.table := ""
+        this.tableFindId := ""
         this.tablePath := ""
         this.columns := []
         this.logger := ""
@@ -84,8 +85,12 @@ class Sm30BulkLoader {
 
     UseTable(tableId := "") {
         this._Log("INFO", "UseTable tableId=" tableId)
+        this.tableFindId := tableId
         this.table := this._FindTableControl(tableId)
-        this.tablePath := tableId != "" ? tableId : this.table.Id
+        if (this.tableFindId = "") {
+            this.tableFindId := this._RelativeFindById(this.table.Id)
+        }
+        this.tablePath := this.tableFindId
         this._LogTableState("UseTable ready")
         return this
     }
@@ -107,6 +112,7 @@ class Sm30BulkLoader {
 
         absoluteRow := startAbsoluteRow
         for rowValues in rows {
+            this._RefreshTable()
             this._Log("INFO", "Row start absoluteRow=" absoluteRow " values=" SapLogFormat.Args(rowValues))
             this._EnsurePhysicalRow(absoluteRow)
             visibleRow := this._EnsureVisibleRow(absoluteRow)
@@ -158,6 +164,25 @@ class Sm30BulkLoader {
         return rows
     }
 
+    _RelativeFindById(fullId) {
+        pos := InStr(fullId, "wnd[")
+        if (pos) {
+            return SubStr(fullId, pos)
+        }
+        return fullId
+    }
+
+    _RefreshTable() {
+        if (this.tableFindId = "") {
+            throw Error("No table id stored; call UseTable() first.")
+        }
+        this.table := this.session.FindById(this.tableFindId)
+        if (this.table.Type != "GuiTableControl") {
+            throw Error("Refreshed control is not a GuiTableControl: " this.tableFindId)
+        }
+        this._Log("INFO", "Refreshed table reference id=" this.tableFindId)
+    }
+
     _FindTableControl(tableId) {
         if (tableId != "") {
             table := this.session.FindById(tableId)
@@ -183,6 +208,7 @@ class Sm30BulkLoader {
     }
 
     _EnsureVisibleRow(absoluteRowIndex) {
+        this._RefreshTable()
         table := this.table
         scrollPos := table.VerticalScrollbar.Position
         visibleCount := table.VisibleRowCount
@@ -193,6 +219,10 @@ class Sm30BulkLoader {
             table.VerticalScrollbar.Position := scrollPos
             this._WaitNotBusy()
             Sleep(this.scrollPauseMs)
+            this._RefreshTable()
+            table := this.table
+            scrollPos := table.VerticalScrollbar.Position
+            visibleCount := table.VisibleRowCount
         }
 
         while (absoluteRowIndex >= scrollPos + visibleCount) {
@@ -201,6 +231,8 @@ class Sm30BulkLoader {
                 this._Log("WARN", "Reached scroll max, creating row absoluteRow=" absoluteRowIndex
                     . " scrollPos=" scrollPos " max=" table.VerticalScrollbar.Maximum)
                 this._CreateNewTableRow()
+                this._RefreshTable()
+                table := this.table
                 scrollPos := table.VerticalScrollbar.Position
                 visibleCount := table.VisibleRowCount
                 continue
@@ -211,6 +243,8 @@ class Sm30BulkLoader {
             scrollPos := nextPos
             this._WaitNotBusy()
             Sleep(this.scrollPauseMs)
+            this._RefreshTable()
+            table := this.table
             visibleCount := table.VisibleRowCount
         }
 
@@ -220,23 +254,26 @@ class Sm30BulkLoader {
     }
 
     _EnsurePhysicalRow(absoluteRowIndex) {
-        table := this.table
-        if (absoluteRowIndex = 0 && table.RowCount <= 0) {
+        this._RefreshTable()
+        rowCount := this.table.RowCount
+        if (absoluteRowIndex = 0 && rowCount <= 0) {
             this._Log("WARN", "RowCount <= 0 for first row; writing into visible slot without create")
             return
         }
 
         guard := 0
-        while (absoluteRowIndex >= table.RowCount) {
+        while (absoluteRowIndex >= rowCount) {
             guard += 1
             if (guard > 1000) {
                 this._Log("ERROR", "Row creation guard exceeded absoluteRow=" absoluteRowIndex
-                    . " rowCount=" table.RowCount)
+                    . " rowCount=" rowCount)
                 throw Error("Could not create enough table rows for index " absoluteRowIndex ".")
             }
             this._Log("INFO", "Create physical row absoluteRow=" absoluteRowIndex
-                . " rowCount=" table.RowCount)
+                . " rowCount=" rowCount)
             this._CreateNewTableRow()
+            this._RefreshTable()
+            rowCount := this.table.RowCount
         }
     }
 
@@ -261,6 +298,7 @@ class Sm30BulkLoader {
         this.session.FindById("wnd[0]").SendVKey(0)
         this._WaitNotBusy()
         Sleep(this.rowCreatePauseMs)
+        this._RefreshTable()
         this._LogTableState("CreateNewTableRow done")
     }
 
@@ -317,6 +355,7 @@ class Sm30BulkLoader {
         cell.SetFocus()
         this.session.FindById("wnd[0]").SendVKey(0)
         this._WaitNotBusy()
+        this._RefreshTable()
     }
 
     _SetCellValue(cell, value, columnDef) {

@@ -62,6 +62,7 @@ class LoggingSapHookPolicy extends SapHookPolicy {
             this.logger.Error("COM fail " op " " typeName "." member " @ " path
                 . " args=" SapLogFormat.Args(args)
                 . " LastError=" A_LastError)
+            return
         }
         super.On_Error(op, typeName, member, path, args)
     }
