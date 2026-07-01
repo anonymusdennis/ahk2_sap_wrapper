@@ -87,7 +87,7 @@ Duplicate/error recovery during save uses the status bar message (`wnd[0]/sbar`)
 
 Before each page/row fill, target cells are checked with `Changeable`. If the bottom of the page is not writable, the loader counts trailing blocked rows and scrolls up by that amount (handles window resize via fresh `VisibleRowCount` reads).
 
-By default `OpenView()` maximizes the SAP window and expands the working pane (`ResizeWorkingPaneEx`) for more visible rows per page. Disable with `SetExpandWindowForThroughput(false)`.
+By default `OpenView()` maximizes the SAP window and expands the working pane to height 2000 (`ResizeWorkingPaneEx`) for more visible rows per page. Override with `SetExpandWindowForThroughput(true, 0, 2000)` or disable with `SetExpandWindowForThroughput(false)`.
 
 ```ahk
 loader.SetErrorRecovery(true, "wnd[0]/tbar[1]/btn[20]")

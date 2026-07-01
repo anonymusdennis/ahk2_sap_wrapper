@@ -25,7 +25,7 @@ class Sm30BulkLoader {
         this.rowCreatePauseMs := 80
         this.expandWindowForThroughput := true
         this.workingPaneWidth := 0
-        this.workingPaneHeight := 0
+        this.workingPaneHeight := 2000
     }
 
     static Attach(policy := "") {
@@ -577,7 +577,7 @@ class Sm30BulkLoader {
             width := 9999
         }
         if (height <= 0) {
-            height := 9999
+            height := 2000
         }
 
         try {
