@@ -33,12 +33,13 @@ if (rowCount < 1) {
 logger := SapFileLogger()
 policy := LoggingSapHookPolicy(logger)
 
-rows := GeneratePfepDummyRows(rowCount)
+runStamp := FormatTime(, "yyMMddHHmm")
+rows := GeneratePfepDummyRows(rowCount, runStamp)
 preview := BuildPreviewText(rows, 5)
 failureDetail := ""
 loader := ""
 
-logger.Info("Dummy fill test starting rows=" rowCount " view=" VIEW_NAME)
+logger.Info("Dummy fill test runStamp=" runStamp " rows=" rowCount " view=" VIEW_NAME)
 
 try {
     loader := Sm30BulkLoader.Attach(policy)
@@ -72,14 +73,18 @@ try {
         . "Preview:`n" preview)
 }
 
-GeneratePfepDummyRows(count) {
+GeneratePfepDummyRows(count, runStamp := "") {
+    if (runStamp = "") {
+        runStamp := FormatTime(, "yyMMddHHmm")
+    }
+
     rows := []
     loop count {
         rowNumber := A_Index
         orgIndex := Mod(rowNumber - 1, SALES_ORGS.Length) + 1
         runTypeIndex := Mod(rowNumber - 1, PFEP_RUN_TYPES.Length) + 1
-        matnrV := Format("DUMMY_V_{:04}", rowNumber)
-        matnrB := Format("DUMMY_B_{:04}", rowNumber + 1)
+        matnrV := MakeUniqueMatnr("V", runStamp, rowNumber)
+        matnrB := MakeUniqueMatnr("B", runStamp, rowNumber + 1)
 
         rows.Push([
             SALES_ORGS[orgIndex],
@@ -89,6 +94,20 @@ GeneratePfepDummyRows(count) {
         ])
     }
     return rows
+}
+
+; Builds a MATNR-safe value (max 18 chars) unique per run and row.
+MakeUniqueMatnr(prefix, runStamp, rowNumber) {
+    matnr := prefix runStamp Format("{:04}", rowNumber)
+    if (StrLen(matnr) > 18) {
+        trimCount := StrLen(matnr) - 18
+        if (trimCount >= StrLen(runStamp)) {
+            throw Error("Run stamp too long for 18-char MATNR: " matnr)
+        }
+        runStamp := SubStr(runStamp, trimCount + 1)
+        matnr := prefix runStamp Format("{:04}", rowNumber)
+    }
+    return matnr
 }
 
 BuildPreviewText(rows, maxLines := 5) {
