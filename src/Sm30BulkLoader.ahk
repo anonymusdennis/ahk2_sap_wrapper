@@ -143,9 +143,9 @@ class Sm30BulkLoader {
             fields := this._ParseCsvLine(trimmed, delimiter)
             rowValues := []
             for columnDef in columns {
-                sourceIndex := columnDef.Has("csvIndex")
-                    ? columnDef["csvIndex"]
-                    : columnDef["index"]
+                sourceIndex := HasOwnProp(columnDef, "csvIndex")
+                    ? columnDef.csvIndex
+                    : columnDef.index
                 if (sourceIndex >= fields.Length) {
                     rowValues.Push("")
                 } else {
@@ -269,12 +269,12 @@ class Sm30BulkLoader {
         loop columnCount {
             columnDef := columns[A_Index]
             value := rowValues[A_Index]
-            cellPath := columnDef.Has("field") ? this._BuildCellPath(visibleRowIndex, columnDef) : "<GetCell>"
+            cellPath := HasOwnProp(columnDef, "field") ? this._BuildCellPath(visibleRowIndex, columnDef) : "<GetCell>"
             try {
                 this._Log("INFO", "Write cell absoluteRow=" absoluteRowIndex
                     . " visibleRow=" visibleRowIndex
-                    . " column=" columnDef["index"]
-                    . " kind=" (columnDef.Has("kind") ? columnDef["kind"] : "Text")
+                    . " column=" columnDef.index
+                    . " kind=" (HasOwnProp(columnDef, "kind") ? columnDef.kind : "Text")
                     . " path=" cellPath
                     . " value=" value)
                 cell := this._ResolveCell(visibleRowIndex, columnDef)
@@ -284,7 +284,7 @@ class Sm30BulkLoader {
             } catch {
                 this.lastFailure := "Failed writing absolute row " absoluteRowIndex
                     . ", visible row " visibleRowIndex
-                    . ", column " columnDef["index"]
+                    . ", column " columnDef.index
                     . ", path " cellPath
                     . ", value " value
                     . ", LastError=" A_LastError
@@ -296,16 +296,16 @@ class Sm30BulkLoader {
     }
 
     _ResolveCell(visibleRowIndex, columnDef) {
-        if (columnDef.Has("field") && columnDef.Has("prefix")) {
+        if (HasOwnProp(columnDef, "field") && HasOwnProp(columnDef, "prefix")) {
             return this.session.FindById(this._BuildCellPath(visibleRowIndex, columnDef))
         }
-        return this.table.GetCell(visibleRowIndex, columnDef["index"])
+        return this.table.GetCell(visibleRowIndex, columnDef.index)
     }
 
     _BuildCellPath(visibleRowIndex, columnDef) {
-        columnIndex := columnDef["index"]
-        prefix := columnDef["prefix"]
-        field := columnDef["field"]
+        columnIndex := columnDef.index
+        prefix := columnDef.prefix
+        field := columnDef.field
         return this.tablePath "/" prefix "/" field "[" columnIndex "," visibleRowIndex "]"
     }
 
@@ -320,7 +320,7 @@ class Sm30BulkLoader {
     }
 
     _SetCellValue(cell, value, columnDef) {
-        kind := columnDef.Has("kind") ? columnDef["kind"] : "Text"
+        kind := HasOwnProp(columnDef, "kind") ? columnDef.kind : "Text"
         if (kind = "Key") {
             cell.Key := value
             return
@@ -333,7 +333,7 @@ class Sm30BulkLoader {
     }
 
     _LogReadBack(cell, columnDef, cellPath) {
-        kind := columnDef.Has("kind") ? columnDef["kind"] : "Text"
+        kind := HasOwnProp(columnDef, "kind") ? columnDef.kind : "Text"
         readBack := "<unavailable>"
         try {
             if (kind = "Key") {
@@ -373,11 +373,11 @@ class Sm30BulkLoader {
 
     _LogColumns(columns) {
         for columnDef in columns {
-            name := columnDef.Has("name") ? columnDef["name"] : ""
-            field := columnDef.Has("field") ? columnDef["field"] : ""
-            prefix := columnDef.Has("prefix") ? columnDef["prefix"] : ""
-            kind := columnDef.Has("kind") ? columnDef["kind"] : "Text"
-            this._Log("INFO", "Column index=" columnDef["index"]
+            name := HasOwnProp(columnDef, "name") ? columnDef.name : ""
+            field := HasOwnProp(columnDef, "field") ? columnDef.field : ""
+            prefix := HasOwnProp(columnDef, "prefix") ? columnDef.prefix : ""
+            kind := HasOwnProp(columnDef, "kind") ? columnDef.kind : "Text"
+            this._Log("INFO", "Column index=" columnDef.index
                 . " kind=" kind
                 . " prefix=" prefix
                 . " field=" field
