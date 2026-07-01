@@ -1,0 +1,38 @@
+{
+  "id": "pfepruntype",
+  "label": "PFEP Run Type (/WUE/PFEPRUNTYPE)",
+  "viewName": "/WUE/PFEPRUNTYPE",
+  "tableId": "wnd[0]/usr/tbl/WUE/SAPLMMC_PFEPTCTRL_/WUE/PFEPRUNTYPE",
+  "description": "PFEP run type assignment per sales org and material numbers.",
+  "excelHeaders": ["VKORG", "MATNR_V", "MATNR_B", "PFEP_RUN_TYPE"],
+  "columns": [
+    {
+      "index": 0,
+      "kind": "Text",
+      "prefix": "ctxt",
+      "field": "WUE/PFEPRUNTYPE-VKORG",
+      "name": "VKORG"
+    },
+    {
+      "index": 1,
+      "kind": "Text",
+      "prefix": "txt",
+      "field": "WUE/PFEPRUNTYPE-MATNR_V",
+      "name": "MATNR_V"
+    },
+    {
+      "index": 2,
+      "kind": "Text",
+      "prefix": "txt",
+      "field": "WUE/PFEPRUNTYPE-MATNR_B",
+      "name": "MATNR_B"
+    },
+    {
+      "index": 3,
+      "kind": "Key",
+      "prefix": "cmb",
+      "field": "WUE/PFEPRUNTYPE-/WUE/PFEP_RUN_TYPE",
+      "name": "PFEP_RUN_TYPE"
+    }
+  ]
+}

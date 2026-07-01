@@ -12,10 +12,10 @@ try {
     ; Column definitions map CSV/array positions to SAP table column indices.
     ; kind: "Text" for input fields, "Key" for dropdown/combobox values.
     columns := [
-        { index: 0, kind: "Text" },  ; VKORG
-        { index: 1, kind: "Text" },  ; MATNR_V
-        { index: 2, kind: "Text" },  ; MATNR_B
-        { index: 3, kind: "Key" }    ; PFEP_RUN_TYPE
+        { index: 0, kind: "Text", prefix: "ctxt", field: "WUE/PFEPRUNTYPE-VKORG" },
+        { index: 1, kind: "Text", prefix: "txt", field: "WUE/PFEPRUNTYPE-MATNR_V" },
+        { index: 2, kind: "Text", prefix: "txt", field: "WUE/PFEPRUNTYPE-MATNR_B" },
+        { index: 3, kind: "Key", prefix: "cmb", field: "WUE/PFEPRUNTYPE-/WUE/PFEP_RUN_TYPE" }
     ]
 
     ; Sample rows (replace with thousands of rows or load from CSV below).

@@ -1,0 +1,6 @@
+{
+  "appTitle": "SM30 Bulk Import",
+  "workingPaneHeight": 2000,
+  "defaultDataFolder": "data",
+  "notes": "Place table definitions in config/tables/*.json. When compiled, keep config/ and data/ next to the exe."
+}

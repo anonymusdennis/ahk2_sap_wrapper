@@ -1,0 +1,167 @@
+#Requires AutoHotkey v2.0
+#Include ../src/Sm30BulkLoader.ahk
+
+; Generates dummy PFEPRUNTYPE rows (default 400) and fills them via SM30.
+; Run with SAP GUI open, scripting enabled, and a logged-in session.
+;
+; Optional CLI: sm30_dummy_fill_test.ahk2 120
+; Logs are written to ../logs/ (gitignored).
+
+DEFAULT_ROW_COUNT := 400
+DUPLICATE_ROW_COUNT := 20
+VIEW_NAME := "/WUE/PFEPRUNTYPE"
+TABLE_ID := "wnd[0]/usr/tbl/WUE/SAPLMMC_PFEPTCTRL_/WUE/PFEPRUNTYPE"
+
+PFEP_COLUMNS := [
+    { index: 0, kind: "Text", prefix: "ctxt", field: "WUE/PFEPRUNTYPE-VKORG", name: "VKORG" },
+    { index: 1, kind: "Text", prefix: "txt", field: "WUE/PFEPRUNTYPE-MATNR_V", name: "MATNR_V" },
+    { index: 2, kind: "Text", prefix: "txt", field: "WUE/PFEPRUNTYPE-MATNR_B", name: "MATNR_B" },
+    { index: 3, kind: "Key", prefix: "cmb", field: "WUE/PFEPRUNTYPE-/WUE/PFEP_RUN_TYPE", name: "PFEP_RUN_TYPE" }
+]
+
+PFEP_RUN_TYPES := ["K", "A", "S1"]
+SALES_ORGS := ["E001"]
+
+rowCount := DEFAULT_ROW_COUNT
+if (A_Args.Length >= 1 && IsInteger(A_Args[1])) {
+    rowCount := Integer(A_Args[1])
+}
+if (rowCount < 1) {
+    MsgBox("Row count must be at least 1.")
+    ExitApp(1)
+}
+
+logger := SapFileLogger()
+policy := LoggingSapHookPolicy(logger)
+
+runStamp := FormatTime(, "yyMMddHHmm")
+rows := GeneratePfepDummyRows(rowCount, runStamp)
+preview := BuildPreviewText(rows, 5)
+failureDetail := ""
+loader := ""
+
+logger.Info("Dummy fill test runStamp=" runStamp " rows=" rowCount
+    . " duplicateRows=" Min(DUPLICATE_ROW_COUNT, rowCount) " view=" VIEW_NAME)
+
+try {
+    loader := Sm30BulkLoader.Attach(policy)
+    loader.SetLogger(logger)
+
+    loader
+        .OpenView(VIEW_NAME)
+        .EnterMaintenance()
+        .NewEntries()
+        .UseTable(TABLE_ID)
+
+    filledCount := loader.FillRows(PFEP_COLUMNS, rows)
+    loader.Save()
+
+    logger.Info("Dummy fill test succeeded rows=" filledCount)
+    MsgBox("Generated and filled " filledCount " dummy rows into " VIEW_NAME ".`n`n"
+        . "Log file:`n" logger.logPath "`n`n"
+        . "First rows:`n" preview)
+} catch {
+    if (loader != "" && loader.lastFailure != "") {
+        failureDetail := loader.lastFailure
+    } else {
+        failureDetail := "SAP interaction failed before or during table fill."
+    }
+    logger.Error("Dummy fill test failed: " failureDetail)
+    MsgBox("Dummy fill test failed.`n`n"
+        . failureDetail "`n`n"
+        . "Generated " rows.Length " rows but could not complete the SAP upload.`n"
+        . "Ensure SAP GUI is open, scripting is enabled, and you are logged in.`n`n"
+        . "Log file:`n" logger.logPath "`n`n"
+        . "Preview:`n" preview)
+}
+
+GeneratePfepDummyRows(count, runStamp := "") {
+    if (runStamp = "") {
+        runStamp := FormatTime(, "yyMMddHHmm")
+    }
+
+    rows := []
+    duplicateTemplate := ""
+    duplicateCount := Min(DUPLICATE_ROW_COUNT, count)
+
+    loop count {
+        rowNumber := A_Index
+        orgIndex := Mod(rowNumber - 1, SALES_ORGS.Length) + 1
+        runTypeIndex := Mod(rowNumber - 1, PFEP_RUN_TYPES.Length) + 1
+
+        if (rowNumber = 1) {
+            matnrV := MakeUniqueMatnr("V", runStamp, rowNumber)
+            matnrB := MakeUniqueMatnr("B", runStamp, rowNumber + 1)
+            duplicateTemplate := [
+                SALES_ORGS[orgIndex],
+                matnrV,
+                matnrB,
+                PFEP_RUN_TYPES[runTypeIndex]
+            ]
+            rows.Push(duplicateTemplate)
+            continue
+        }
+
+        if (rowNumber <= duplicateCount) {
+            rows.Push([
+                duplicateTemplate[1],
+                duplicateTemplate[2],
+                duplicateTemplate[3],
+                duplicateTemplate[4]
+            ])
+            continue
+        }
+
+        matnrV := MakeUniqueMatnr("V", runStamp, rowNumber)
+        matnrB := MakeUniqueMatnr("B", runStamp, rowNumber + 1)
+        rows.Push([
+            SALES_ORGS[orgIndex],
+            matnrV,
+            matnrB,
+            PFEP_RUN_TYPES[runTypeIndex]
+        ])
+    }
+    return rows
+}
+
+; Builds a MATNR-safe value (max 18 chars) unique per run and row.
+MakeUniqueMatnr(prefix, runStamp, rowNumber) {
+    matnr := prefix runStamp Format("{:04}", rowNumber)
+    if (StrLen(matnr) > 18) {
+        trimCount := StrLen(matnr) - 18
+        if (trimCount >= StrLen(runStamp)) {
+            throw Error("Run stamp too long for 18-char MATNR: " matnr)
+        }
+        runStamp := SubStr(runStamp, trimCount + 1)
+        matnr := prefix runStamp Format("{:04}", rowNumber)
+    }
+    return matnr
+}
+
+BuildPreviewText(rows, maxLines := 5) {
+    lines := []
+    previewCount := Min(maxLines, rows.Length)
+    loop previewCount {
+        row := rows[A_Index]
+        lines.Push(A_Index ".  "
+            . row[1] " | "
+            . row[2] " | "
+            . row[3] " | "
+            . row[4])
+    }
+    if (rows.Length > previewCount) {
+        lines.Push("... (" (rows.Length - previewCount) " more rows)")
+    }
+    return JoinLines(lines, "`n")
+}
+
+JoinLines(lines, delimiter := "`n") {
+    output := ""
+    for line in lines {
+        if (output != "") {
+            output .= delimiter
+        }
+        output .= line
+    }
+    return output
+}
