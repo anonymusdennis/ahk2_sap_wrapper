@@ -1,0 +1,91 @@
+#Requires AutoHotkey v2.0
+#Include ../src/Sm30BulkLoader.ahk
+
+; Generates dummy PFEPRUNTYPE rows (default 60) and fills them via SM30.
+; Run with SAP GUI open, scripting enabled, and a logged-in session.
+;
+; Optional CLI: sm30_dummy_fill_test.ahk 120
+
+DEFAULT_ROW_COUNT := 60
+VIEW_NAME := "/WUE/PFEPRUNTYPE"
+TABLE_ID := "wnd[0]/usr/tbl/WUE/SAPLMMC_PFEPTCTRL_/WUE/PFEPRUNTYPE"
+
+PFEP_COLUMNS := [
+    { index: 0, kind: "Text", name: "VKORG" },
+    { index: 1, kind: "Text", name: "MATNR_V" },
+    { index: 2, kind: "Text", name: "MATNR_B" },
+    { index: 3, kind: "Key", name: "PFEP_RUN_TYPE" }
+]
+
+PFEP_RUN_TYPES := ["K", "A", "S1"]
+SALES_ORGS := ["E001"]
+
+rowCount := DEFAULT_ROW_COUNT
+if (A_Args.Length >= 1 && IsInteger(A_Args[1])) {
+    rowCount := Integer(A_Args[1])
+}
+if (rowCount < 1) {
+    MsgBox("Row count must be at least 1.")
+    ExitApp(1)
+}
+
+rows := GeneratePfepDummyRows(rowCount)
+preview := BuildPreviewText(rows, 5)
+
+try {
+    policy := SapHookPolicy()
+    loader := Sm30BulkLoader.Attach(policy)
+
+    loader
+        .OpenView(VIEW_NAME)
+        .EnterMaintenance()
+        .NewEntries()
+        .UseTable(TABLE_ID)
+
+    filledCount := loader.FillRows(PFEP_COLUMNS, rows)
+    loader.Save()
+
+    MsgBox("Generated and filled " filledCount " dummy rows into " VIEW_NAME ".`n`n"
+        . "First rows:`n" preview)
+} catch {
+    MsgBox("Dummy fill test failed.`n`n"
+        . "Generated " rows.Length " rows but could not complete the SAP upload.`n"
+        . "Ensure SAP GUI is open, scripting is enabled, and you are logged in.`n`n"
+        . "Preview:`n" preview)
+}
+
+GeneratePfepDummyRows(count) {
+    rows := []
+    loop count {
+        rowNumber := A_Index
+        orgIndex := Mod(rowNumber - 1, SALES_ORGS.Length) + 1
+        runTypeIndex := Mod(rowNumber - 1, PFEP_RUN_TYPES.Length) + 1
+        matnrV := Format("DUMMY_V_{:04}", rowNumber)
+        matnrB := Format("DUMMY_B_{:04}", rowNumber + 1)
+
+        rows.Push([
+            SALES_ORGS[orgIndex],
+            matnrV,
+            matnrB,
+            PFEP_RUN_TYPES[runTypeIndex]
+        ])
+    }
+    return rows
+}
+
+BuildPreviewText(rows, maxLines := 5) {
+    lines := []
+    previewCount := Min(maxLines, rows.Length)
+    loop previewCount {
+        row := rows[A_Index]
+        lines.Push(A_Index ".  "
+            . row[1] " | "
+            . row[2] " | "
+            . row[3] " | "
+            . row[4])
+    }
+    if (rows.Length > previewCount) {
+        lines.Push("... (" (rows.Length - previewCount) " more rows)")
+    }
+    return lines.Join("`n")
+}

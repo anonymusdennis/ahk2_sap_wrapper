@@ -49,6 +49,13 @@ loader
 
 Runnable example: `/examples/sm30_bulk_fill.ahk`
 
+Dummy data test (generates 60 rows by default, then uploads to `/WUE/PFEPRUNTYPE`):
+
+```ahk
+; examples/sm30_dummy_fill_test.ahk
+; Optional: sm30_dummy_fill_test.ahk 120
+```
+
 Column `kind` values:
 - `Text` — standard input fields (`Text` property)
 - `Key` — dropdown/combobox fields (`Key` property)
