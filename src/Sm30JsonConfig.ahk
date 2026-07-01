@@ -7,41 +7,116 @@ class Sm30JsonConfig {
         if (SubStr(jsonText, 1, 1) = Chr(0xFEFF)) {
             jsonText := SubStr(jsonText, 2)
         }
+        if (jsonText = "") {
+            throw Error("JSON text is empty.")
+        }
         parser := Sm30JsonParser(jsonText)
-        return parser.Parse()
+        parsed := parser.Parse()
+        return Sm30JsonConfig._RebuildObject(parsed)
     }
 
     static LoadFile(jsonPath) {
         if (!FileExist(jsonPath)) {
             throw Error("JSON file not found: " jsonPath)
         }
-        return Sm30JsonConfig.LoadText(FileRead(jsonPath, "UTF-8"))
+        try {
+            jsonText := Sm30JsonConfig._ReadFileText(jsonPath)
+            tableDef := Sm30JsonConfig.LoadText(jsonText)
+            Sm30JsonConfig._ValidateTableDef(tableDef, jsonPath)
+            return tableDef
+        } catch {
+            detail := Sm30JsonParser.lastError != "" ? Sm30JsonParser.lastError : "LastError=" A_LastError
+            throw Error("Failed to load table config: " jsonPath "`n" detail)
+        }
     }
 
     static LoadAllFromDir(tablesDir) {
         tables := []
         if (!DirExist(tablesDir)) {
-            return tables
+            throw Error("Table config folder not found: " tablesDir)
         }
         loop files tablesDir "\*.json", "F" {
-            try {
-                tableDef := Sm30JsonConfig.LoadFile(A_LoopFileFullPath)
-                if (!tableDef.HasOwnProp("id")) {
-                    tableDef.id := A_LoopFileName
-                }
-                tables.Push(tableDef)
-            } catch {
-                throw Error("Failed to load table config: " A_LoopFileFullPath)
+            tableDef := Sm30JsonConfig.LoadFile(A_LoopFileFullPath)
+            if (!tableDef.HasOwnProp("id") || tableDef.id = "") {
+                SplitPath(A_LoopFileFullPath, &baseName, , &ext)
+                tableDef.id := baseName
             }
+            tables.Push(tableDef)
         }
         if (tables.Length = 0) {
             throw Error("No table configs found in: " tablesDir)
         }
         return tables
     }
+
+    static _ReadFileText(path) {
+        file := ""
+        try {
+            file := FileOpen(path, "r", "UTF-8")
+        } catch {
+        }
+        if (!IsObject(file)) {
+            try {
+                file := FileOpen(path, "r")
+            } catch {
+            }
+        }
+        if (!IsObject(file)) {
+            throw Error("Could not open file for reading.")
+        }
+        content := file.Read()
+        file.Close()
+        return content
+    }
+
+    static _ValidateTableDef(tableDef, jsonPath) {
+        if (Type(tableDef) != "Object") {
+            throw Error("Root JSON value must be an object: " jsonPath)
+        }
+        required := ["label", "viewName", "tableId", "columns"]
+        for fieldName in required {
+            if (!tableDef.HasOwnProp(fieldName)) {
+                throw Error("Missing required field '" fieldName "' in " jsonPath)
+            }
+        }
+        if (Type(tableDef.columns) != "Array" || tableDef.columns.Length = 0) {
+            throw Error("'columns' must be a non-empty array in " jsonPath)
+        }
+    }
+
+    static _RebuildObject(value) {
+        valueType := Type(value)
+        if (valueType = "Array") {
+            rebuilt := []
+            for item in value {
+                rebuilt.Push(Sm30JsonConfig._RebuildObject(item))
+            }
+            return rebuilt
+        }
+        if (valueType != "Object") {
+            return value
+        }
+
+        rebuilt := {}
+        for key, item in value {
+            item := Sm30JsonConfig._RebuildObject(item)
+            Sm30JsonConfig._SetProperty(rebuilt, key, item)
+        }
+        return rebuilt
+    }
+
+    static _SetProperty(obj, key, value) {
+        if (RegExMatch(key, "^[A-Za-z_]\w*$")) {
+            obj.%key% := value
+            return
+        }
+        obj[key] := value
+    }
 }
 
 class Sm30JsonParser {
+    static lastError := ""
+
     __New(text) {
         this.text := text
         this.len := StrLen(text)
@@ -49,13 +124,25 @@ class Sm30JsonParser {
     }
 
     Parse() {
+        Sm30JsonParser.lastError := ""
         this._SkipWhitespace()
         value := this._ReadValue()
         this._SkipWhitespace()
         if (this.pos <= this.len) {
-            throw Error("Unexpected JSON text at position " this.pos)
+            this._Fail("Unexpected JSON text at position " this.pos)
         }
         return value
+    }
+
+    _Fail(message) {
+        snippet := Sm30JsonParser._Snippet(this.text, this.pos)
+        Sm30JsonParser.lastError := message " Context: " snippet
+        throw Error(Sm30JsonParser.lastError)
+    }
+
+    static _Snippet(text, pos) {
+        start := Max(1, pos - 24)
+        return "..." SubStr(text, start, 48) "..."
     }
 
     _SkipWhitespace() {
@@ -96,7 +183,7 @@ class Sm30JsonParser {
         if (ch = "-" || (ch >= "0" && ch <= "9")) {
             return this._ReadNumber()
         }
-        throw Error("Invalid JSON value at position " this.pos)
+        this._Fail("Invalid JSON value at position " this.pos)
     }
 
     _ReadObject() {
@@ -112,10 +199,10 @@ class Sm30JsonParser {
             key := this._ReadString()
             this._SkipWhitespace()
             if (SubStr(this.text, this.pos, 1) != ":") {
-                throw Error("Expected ':' in JSON object at position " this.pos)
+                this._Fail("Expected ':' in JSON object at position " this.pos)
             }
             this.pos += 1
-            obj[key] := this._ReadValue()
+            Sm30JsonConfig._SetProperty(obj, key, this._ReadValue())
             this._SkipWhitespace()
             ch := SubStr(this.text, this.pos, 1)
             if (ch = "}") {
@@ -123,7 +210,7 @@ class Sm30JsonParser {
                 break
             }
             if (ch != ",") {
-                throw Error("Expected ',' or '}' in JSON object at position " this.pos)
+                this._Fail("Expected ',' or '}' in JSON object at position " this.pos)
             }
             this.pos += 1
         }
@@ -147,7 +234,7 @@ class Sm30JsonParser {
                 break
             }
             if (ch != ",") {
-                throw Error("Expected ',' or ']' in JSON array at position " this.pos)
+                this._Fail("Expected ',' or ']' in JSON array at position " this.pos)
             }
             this.pos += 1
         }
@@ -156,7 +243,7 @@ class Sm30JsonParser {
 
     _ReadString() {
         if (SubStr(this.text, this.pos, 1) != '"') {
-            throw Error("Expected JSON string at position " this.pos)
+            this._Fail("Expected JSON string at position " this.pos)
         }
         this.pos += 1
         result := ""
@@ -169,7 +256,7 @@ class Sm30JsonParser {
             if (ch = "\") {
                 this.pos += 1
                 if (this.pos > this.len) {
-                    throw Error("Invalid JSON string escape at position " this.pos)
+                    this._Fail("Invalid JSON string escape at position " this.pos)
                 }
                 esc := SubStr(this.text, this.pos, 1)
                 if (esc = "n") {
@@ -197,7 +284,7 @@ class Sm30JsonParser {
             result .= ch
             this.pos += 1
         }
-        throw Error("Unterminated JSON string")
+        this._Fail("Unterminated JSON string")
     }
 
     _ReadBool() {
@@ -209,7 +296,7 @@ class Sm30JsonParser {
             this.pos += 5
             return false
         }
-        throw Error("Invalid JSON boolean at position " this.pos)
+        this._Fail("Invalid JSON boolean at position " this.pos)
     }
 
     _ReadNull() {
@@ -217,7 +304,7 @@ class Sm30JsonParser {
             this.pos += 4
             return ""
         }
-        throw Error("Invalid JSON null at position " this.pos)
+        this._Fail("Invalid JSON null at position " this.pos)
     }
 
     _ReadNumber() {
@@ -243,9 +330,9 @@ class Sm30JsonParser {
             }
         }
         numText := SubStr(this.text, start, this.pos - start)
-        if (InStr(numText, ".")) {
-            return Float(numText)
+        if (numText = "" || numText = "-") {
+            this._Fail("Invalid JSON number at position " start)
         }
-        return Integer(numText)
+        return Number(numText)
     }
 }
