@@ -200,13 +200,10 @@ class Sm30BulkLoader {
             skipped := this._CommitPage(lastVisibleRow, columns, absoluteEnd)
 
             dataIndex += rowsOnPage
+            absoluteRow += rowsOnPage
             if (skipped > 0) {
-                this._RefreshTable()
-                absoluteRow := this.table.RowCount
-                this._Log("INFO", "Resync after skipped entries absoluteRow=" absoluteRow
-                    . " dataIndex=" dataIndex)
-            } else {
-                absoluteRow += rowsOnPage
+                this._Log("INFO", "Skipped " skipped " error entries; continue at absoluteRow="
+                    . absoluteRow " dataIndex=" dataIndex)
             }
         }
 
@@ -526,9 +523,16 @@ class Sm30BulkLoader {
             }
             this._Log("INFO", "Create physical row absoluteRow=" absoluteRowIndex
                 . " rowCount=" rowCount)
+            rowCountBefore := rowCount
             this._CreateNewTableRow()
             this._RefreshTable()
             rowCount := this.table.RowCount
+            if (rowCount <= rowCountBefore) {
+                this._Log("ERROR", "RowCount did not increase after Enter absoluteRow="
+                    . absoluteRowIndex " rowCount=" rowCount)
+                throw Error("Could not create table row at index " absoluteRowIndex
+                    . "; RowCount stayed at " rowCount ".")
+            }
         }
     }
 
@@ -719,19 +723,6 @@ class Sm30BulkLoader {
         return false
     }
 
-    _RequiresSkipRecovery() {
-        return this._HasSapError() && this._IsSkipButtonAvailable(this.skipErrorButtonId)
-    }
-
-    _ReadStatusSnapshot() {
-        try {
-            sbar := this.session.FindById("wnd[0]/sbar")
-            return sbar.MessageType "|" sbar.MessageId "|" sbar.MessageNumber "|" Trim(sbar.Text)
-        } catch {
-            return ""
-        }
-    }
-
     _IsSkipButtonAvailable(skipButtonId) {
         try {
             btn := this.session.FindById(skipButtonId)
@@ -770,40 +761,25 @@ class Sm30BulkLoader {
 
         skipCount := 0
         guard := 0
-        stalled := false
-        while (guard < 1000) {
-            if (!this._RequiresSkipRecovery()) {
-                break
+        while (this._HasSapError() && guard < 1000) {
+            guard += 1
+            if (!this._IsSkipButtonAvailable(this.skipErrorButtonId)) {
+                this._LogSapMessage("SAP error but skip button unavailable")
+                this.lastFailure := "SAP error shown but skip button is unavailable"
+                throw Error(this.lastFailure)
             }
 
-            snapshotBefore := this._ReadStatusSnapshot()
-            this._LogSapMessage("Recovering SAP error")
+            this._LogSapMessage("Recovering SAP error skip=" skipCount + 1)
             this.session.FindById(this.skipErrorButtonId).Press()
             this._WaitNotBusy()
             Sleep(100)
             skipCount += 1
-            guard += 1
-
-            if (!this._RequiresSkipRecovery()) {
-                break
-            }
-
-            snapshotAfter := this._ReadStatusSnapshot()
-            if (snapshotAfter = snapshotBefore) {
-                this._Log("WARN", "Skip button had no effect; stopping recovery loop")
-                stalled := true
-                break
-            }
         }
 
-        if (this._RequiresSkipRecovery() && !stalled) {
+        if (this._HasSapError()) {
             this._LogSapMessage("SAP error remains after skip recovery")
-            this.lastFailure := "SAP error remains after skip recovery"
+            this.lastFailure := "SAP error remains after " skipCount " skip presses"
             throw Error(this.lastFailure)
-        }
-
-        if (stalled && this._HasSapError()) {
-            this._LogSapMessage("Status bar still shows error after skip stopped having effect")
         }
 
         if (skipCount > 0) {
