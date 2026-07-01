@@ -1,4 +1,4 @@
-#Requires AutoHotkey v2.1
+#Requires AutoHotkey v2.0
 
 #Include Sm30BulkLoader.ahk
 #Include Sm30AppPaths.ahk

@@ -1,4 +1,4 @@
-#Requires AutoHotkey v2.1
+#Requires AutoHotkey v2.0
 
 #Include Sm30AppPaths.ahk
 #Include Sm30JsonConfig.ahk

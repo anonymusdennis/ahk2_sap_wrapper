@@ -95,7 +95,7 @@ loader.SetErrorRecovery(true, "wnd[0]/tbar[1]/btn[20]")
 
 ## Excel import GUI
 
-Graphical tool for loading Excel data, testing one row in SAP, then running the bulk import with session selection and progress. Requires **AutoHotkey v2.1+** (JSON config loading).
+Graphical tool for loading Excel data, testing one row in SAP, then running the bulk import with session selection and progress. Works with **AutoHotkey v2.0+** (includes alpha builds).
 
 ```text
 examples/sm30/sm30_bulk_import_gui.ahk2

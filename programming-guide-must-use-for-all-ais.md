@@ -215,7 +215,7 @@ Two-step flow works well:
 
 Excel reading requires **Microsoft Excel installed** (COM: `Excel.Application`). Regenerate sample: `python scripts/generate_sample_excel.py` → `examples/data/pfepruntype_sample.xlsx`.
 
-Add new customizing tables via JSON in `config/tables/*.json` (see `examples/sm30/config/tables/pfepruntype.json`). Do not hardcode tables in `Sm30TableCatalog.ahk`.
+Add new customizing tables via JSON in `config/tables/*.json` (see `examples/sm30/config/tables/pfepruntype.json`). Do not hardcode tables in `Sm30TableCatalog.ahk`. Use the built-in `Sm30JsonParser` — do **not** require AHK v2.1 `JsonLoad` (many users run v2.0 or v2.1-alpha where `#Requires AutoHotkey v2.1` fails).
 
 ---
 
@@ -275,7 +275,7 @@ Launcher path: `examples/sm30/sm30_bulk_import_gui.ahk2`
 | `examples/sm30/sm30_bulk_import_gui.ahk2` | Launch GUI |
 | `examples/sm30/config/tables/*.json` | SM30 table definitions |
 | `src/Sm30AppPaths.ahk` | Resolves paths from `A_ScriptDir` (script or compiled exe) |
-| `src/Sm30JsonConfig.ahk` | Loads JSON table configs (requires AHK v2.1 `JsonLoad`) |
+| `src/Sm30JsonConfig.ahk` | Built-in JSON parser for table configs (no JsonLoad / v2.1 needed) |
 | `examples/sm30_dummy_fill_test.ahk2` | Stress test with intentional duplicates |
 
 ---
