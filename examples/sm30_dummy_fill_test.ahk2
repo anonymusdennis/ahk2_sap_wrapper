@@ -11,10 +11,10 @@ VIEW_NAME := "/WUE/PFEPRUNTYPE"
 TABLE_ID := "wnd[0]/usr/tbl/WUE/SAPLMMC_PFEPTCTRL_/WUE/PFEPRUNTYPE"
 
 PFEP_COLUMNS := [
-    { index: 0, kind: "Text", name: "VKORG" },
-    { index: 1, kind: "Text", name: "MATNR_V" },
-    { index: 2, kind: "Text", name: "MATNR_B" },
-    { index: 3, kind: "Key", name: "PFEP_RUN_TYPE" }
+    { index: 0, kind: "Text", prefix: "ctxt", field: "WUE/PFEPRUNTYPE-VKORG", name: "VKORG" },
+    { index: 1, kind: "Text", prefix: "txt", field: "WUE/PFEPRUNTYPE-MATNR_V", name: "MATNR_V" },
+    { index: 2, kind: "Text", prefix: "txt", field: "WUE/PFEPRUNTYPE-MATNR_B", name: "MATNR_B" },
+    { index: 3, kind: "Key", prefix: "cmb", field: "WUE/PFEPRUNTYPE-/WUE/PFEP_RUN_TYPE", name: "PFEP_RUN_TYPE" }
 ]
 
 PFEP_RUN_TYPES := ["K", "A", "S1"]
@@ -31,6 +31,8 @@ if (rowCount < 1) {
 
 rows := GeneratePfepDummyRows(rowCount)
 preview := BuildPreviewText(rows, 5)
+failureDetail := ""
+loader := ""
 
 try {
     policy := SapHookPolicy()
@@ -48,7 +50,13 @@ try {
     MsgBox("Generated and filled " filledCount " dummy rows into " VIEW_NAME ".`n`n"
         . "First rows:`n" preview)
 } catch {
+    if (loader != "" && loader.lastFailure != "") {
+        failureDetail := loader.lastFailure
+    } else {
+        failureDetail := "SAP interaction failed before or during table fill."
+    }
     MsgBox("Dummy fill test failed.`n`n"
+        . failureDetail "`n`n"
         . "Generated " rows.Length " rows but could not complete the SAP upload.`n"
         . "Ensure SAP GUI is open, scripting is enabled, and you are logged in.`n`n"
         . "Preview:`n" preview)

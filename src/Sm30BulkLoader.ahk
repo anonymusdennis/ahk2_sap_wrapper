@@ -9,6 +9,9 @@ class Sm30BulkLoader {
         this.session := session
         this.policy := IsObject(policy) ? policy : SapHookPolicy()
         this.table := ""
+        this.tablePath := ""
+        this.columns := []
+        this.lastFailure := ""
         this.scrollPauseMs := 30
         this.rowCreatePauseMs := 80
     }
@@ -53,6 +56,7 @@ class Sm30BulkLoader {
 
     UseTable(tableId := "") {
         this.table := this._FindTableControl(tableId)
+        this.tablePath := tableId != "" ? tableId : this.table.Id
         return this
     }
 
@@ -67,11 +71,12 @@ class Sm30BulkLoader {
             return 0
         }
 
+        this.columns := columns
         absoluteRow := startAbsoluteRow
         for rowValues in rows {
             this._EnsurePhysicalRow(absoluteRow)
             visibleRow := this._EnsureVisibleRow(absoluteRow)
-            this._WriteRow(visibleRow, columns, rowValues)
+            this._WriteRow(visibleRow, absoluteRow, columns, rowValues)
             absoluteRow += 1
         }
         return rows.Length
@@ -165,6 +170,10 @@ class Sm30BulkLoader {
 
     _EnsurePhysicalRow(absoluteRowIndex) {
         table := this.table
+        if (absoluteRowIndex = 0 && table.RowCount <= 0) {
+            return
+        }
+
         guard := 0
         while (absoluteRowIndex >= table.RowCount) {
             guard += 1
@@ -182,31 +191,59 @@ class Sm30BulkLoader {
             throw Error("Table has no visible rows.")
         }
 
-        lastColumn := table.Columns.Length - 1
-        if (lastColumn < 0) {
-            throw Error("Table has no columns.")
+        if (this.columns.Length = 0) {
+            throw Error("No column definitions available for row creation.")
         }
 
-        if (lastVisibleRow >= table.VisibleRowCount) {
-            lastVisibleRow := table.VisibleRowCount - 1
-        }
-
-        cell := table.GetCell(lastVisibleRow, lastColumn)
+        lastColumnDef := this.columns[this.columns.Length]
+        cell := this._ResolveCell(lastVisibleRow, lastColumnDef)
         cell.SetFocus()
         this.session.FindById("wnd[0]").SendVKey(0)
         this._WaitNotBusy()
         Sleep(this.rowCreatePauseMs)
     }
 
-    _WriteRow(visibleRowIndex, columns, rowValues) {
-        table := this.table
+    _WriteRow(visibleRowIndex, absoluteRowIndex, columns, rowValues) {
         columnCount := Min(columns.Length, rowValues.Length)
         loop columnCount {
             columnDef := columns[A_Index]
             value := rowValues[A_Index]
-            cell := table.GetCell(visibleRowIndex, columnDef["index"])
-            this._SetCellValue(cell, value, columnDef)
+            try {
+                cell := this._ResolveCell(visibleRowIndex, columnDef)
+                cell.SetFocus()
+                this._SetCellValue(cell, value, columnDef)
+            } catch {
+                this.lastFailure := "Failed writing absolute row " absoluteRowIndex
+                    . ", visible row " visibleRowIndex
+                    . ", column " columnDef["index"]
+                    . ", path " this._BuildCellPath(visibleRowIndex, columnDef)
+                    . ", value " value
+                throw Error(this.lastFailure)
+            }
         }
+        this._CommitRow(visibleRowIndex, columns)
+    }
+
+    _ResolveCell(visibleRowIndex, columnDef) {
+        if (columnDef.Has("field") && columnDef.Has("prefix")) {
+            return this.session.FindById(this._BuildCellPath(visibleRowIndex, columnDef))
+        }
+        return this.table.GetCell(visibleRowIndex, columnDef["index"])
+    }
+
+    _BuildCellPath(visibleRowIndex, columnDef) {
+        columnIndex := columnDef["index"]
+        prefix := columnDef["prefix"]
+        field := columnDef["field"]
+        return this.tablePath "/" prefix "/" field "[" columnIndex "," visibleRowIndex "]"
+    }
+
+    _CommitRow(visibleRowIndex, columns) {
+        lastColumnDef := columns[columns.Length]
+        cell := this._ResolveCell(visibleRowIndex, lastColumnDef)
+        cell.SetFocus()
+        this.session.FindById("wnd[0]").SendVKey(0)
+        this._WaitNotBusy()
     }
 
     _SetCellValue(cell, value, columnDef) {

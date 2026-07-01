@@ -33,9 +33,10 @@ Use `Sm30BulkLoader` to insert many rows into any SM30 maintenance view. The loa
 loader := Sm30BulkLoader.Attach()
 
 columns := [
-    { index: 0, kind: "Text" },
-    { index: 1, kind: "Text" },
-    { index: 3, kind: "Key" }   ; dropdown/combobox
+    { index: 0, kind: "Text", prefix: "ctxt", field: "WUE/PFEPRUNTYPE-VKORG" },
+    { index: 1, kind: "Text", prefix: "txt", field: "WUE/PFEPRUNTYPE-MATNR_V" },
+    { index: 2, kind: "Text", prefix: "txt", field: "WUE/PFEPRUNTYPE-MATNR_B" },
+    { index: 3, kind: "Key", prefix: "cmb", field: "WUE/PFEPRUNTYPE-/WUE/PFEP_RUN_TYPE" }
 ]
 
 rows := loader.LoadCsv(A_ScriptDir "\data\my_table.csv", columns, true)
@@ -57,6 +58,16 @@ Dummy data test (generates 60 rows by default, then uploads to `/WUE/PFEPRUNTYPE
 examples/sm30_dummy_fill_test.ahk2
 examples/sm30_dummy_fill_test.ahk2 120
 ```
+
+Column definitions need the SAP field metadata from your script recorder:
+
+```ahk
+{ index: 0, kind: "Text", prefix: "ctxt", field: "WUE/PFEPRUNTYPE-VKORG" }
+{ index: 3, kind: "Key", prefix: "cmb", field: "WUE/PFEPRUNTYPE-/WUE/PFEP_RUN_TYPE" }
+```
+
+`prefix` is the control type folder in the table path (`ctxt`, `txt`, `cmb`, ...).
+`field` is the field name segment from the recorded `findById` path.
 
 Column `kind` values:
 - `Text` — standard input fields (`Text` property)
