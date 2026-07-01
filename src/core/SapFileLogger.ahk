@@ -41,17 +41,18 @@ class SapFileLogger {
 class LoggingSapHookPolicy extends SapHookPolicy {
     __New(logger := "") {
         this.logger := logger
+        this.quiet := false
     }
 
     On_Call(op, typeName, member, path, args) {
-        if (!IsObject(this.logger)) {
+        if (this.quiet || !IsObject(this.logger)) {
             return
         }
         this.logger.Info("COM " op " " typeName "." member " @ " path " args=" SapLogFormat.Args(args))
     }
 
     After_Call(op, typeName, member, path, result) {
-        if (!IsObject(this.logger)) {
+        if (this.quiet || !IsObject(this.logger)) {
             return
         }
         this.logger.Info("COM ok " typeName "." member " @ " path " => " SapLogFormat.Result(result))

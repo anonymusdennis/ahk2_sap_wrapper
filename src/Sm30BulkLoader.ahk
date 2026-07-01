@@ -16,6 +16,8 @@ class Sm30BulkLoader {
         this.logger := ""
         this.logPath := ""
         this.lastFailure := ""
+        this.fillMode := "page"
+        this.verboseCellLogging := false
         this.scrollPauseMs := 30
         this.rowCreatePauseMs := 80
     }
@@ -50,6 +52,22 @@ class Sm30BulkLoader {
         if (IsObject(logger)) {
             this.logger := logger
             this.logPath := logger.logPath
+        }
+        return this
+    }
+
+    SetFillMode(mode) {
+        if (mode != "page" && mode != "row") {
+            throw Error('Fill mode must be "page" or "row".')
+        }
+        this.fillMode := mode
+        this.verboseCellLogging := (mode = "row")
+        return this
+    }
+
+    SetQuietComLogging(quiet := true) {
+        if (this.policy.HasOwnProp("quiet")) {
+            this.policy.quiet := quiet
         }
         return this
     }
@@ -107,22 +125,157 @@ class Sm30BulkLoader {
         }
 
         this.columns := columns
-        this._Log("INFO", "FillRows start rows=" rows.Length " startAbsoluteRow=" startAbsoluteRow)
+        this._Log("INFO", "FillRows start rows=" rows.Length " mode=" this.fillMode " startAbsoluteRow=" startAbsoluteRow)
         this._LogColumns(columns)
 
+        wasQuiet := false
+        if (this.fillMode = "page" && this.policy.HasOwnProp("quiet")) {
+            wasQuiet := this.policy.quiet
+            this.policy.quiet := true
+        }
+
+        try {
+            if (this.fillMode = "row") {
+                filledCount := this._FillRowsByRow(columns, rows, startAbsoluteRow)
+            } else {
+                filledCount := this._FillRowsByPage(columns, rows, startAbsoluteRow)
+            }
+        } catch {
+            if (this.policy.HasOwnProp("quiet")) {
+                this.policy.quiet := wasQuiet
+            }
+            throw
+        }
+
+        if (this.policy.HasOwnProp("quiet")) {
+            this.policy.quiet := wasQuiet
+        }
+
+        this._Log("INFO", "FillRows done rows=" filledCount)
+        return filledCount
+    }
+
+    _FillRowsByRow(columns, rows, startAbsoluteRow) {
         absoluteRow := startAbsoluteRow
         for rowValues in rows {
             this._RefreshTable()
             this._Log("INFO", "Row start absoluteRow=" absoluteRow " values=" SapLogFormat.Args(rowValues))
             this._EnsurePhysicalRow(absoluteRow)
-            visibleRow := this._EnsureVisibleRow(absoluteRow)
+            visibleRow := this._SyncScrollForAbsoluteRow(absoluteRow)
             this._Log("INFO", "Row mapped absoluteRow=" absoluteRow " visibleRow=" visibleRow)
             this._WriteRow(visibleRow, absoluteRow, columns, rowValues)
             absoluteRow += 1
         }
-
-        this._Log("INFO", "FillRows done rows=" rows.Length)
         return rows.Length
+    }
+
+    _FillRowsByPage(columns, rows, startAbsoluteRow) {
+        dataIndex := 1
+        absoluteRow := startAbsoluteRow
+        totalRows := rows.Length
+
+        while (dataIndex <= totalRows) {
+            this._RefreshTable()
+            this._EnsurePhysicalRow(absoluteRow)
+
+            remaining := totalRows - dataIndex + 1
+            visibleStart := this._SyncScrollForAbsoluteRow(absoluteRow)
+            visibleCount := this.table.VisibleRowCount
+            rowsOnPage := Min(visibleCount - visibleStart, remaining)
+            if (rowsOnPage <= 0) {
+                throw Error("Could not fit any rows on screen at absolute row " absoluteRow ".")
+            }
+
+            absoluteEnd := absoluteRow + rowsOnPage - 1
+            this._Log("INFO", "Fill page absoluteRows=" absoluteRow "-" absoluteEnd
+                . " visibleStart=" visibleStart " count=" rowsOnPage)
+
+            this._FillPageColumnMajor(visibleStart, rowsOnPage, columns, rows, dataIndex, absoluteRow)
+            lastVisibleRow := visibleStart + rowsOnPage - 1
+            this._CommitPage(lastVisibleRow, columns, absoluteEnd)
+
+            dataIndex += rowsOnPage
+            absoluteRow += rowsOnPage
+        }
+
+        return totalRows
+    }
+
+    _FillPageColumnMajor(visibleStartRow, rowCount, columns, rows, dataStartIndex, absoluteStartRow) {
+        for colArrayIdx, columnDef in columns {
+            loop rowCount {
+                visibleRow := visibleStartRow + A_Index - 1
+                dataIdx := dataStartIndex + A_Index - 1
+                absoluteRowIndex := absoluteStartRow + A_Index - 1
+                rowValues := rows[dataIdx]
+                if (colArrayIdx > rowValues.Length) {
+                    continue
+                }
+                value := rowValues[colArrayIdx]
+                this._WriteCellFast(visibleRow, absoluteRowIndex, columnDef, value)
+            }
+        }
+    }
+
+    _WriteCellFast(visibleRowIndex, absoluteRowIndex, columnDef, value) {
+        cellPath := columnDef.HasOwnProp("field") ? this._BuildCellPath(visibleRowIndex, columnDef) : "<GetCell>"
+        try {
+            if (this.verboseCellLogging) {
+                this._Log("INFO", "Write cell absoluteRow=" absoluteRowIndex
+                    . " visibleRow=" visibleRowIndex
+                    . " column=" columnDef.index
+                    . " path=" cellPath
+                    . " value=" value)
+            }
+            cell := this._ResolveCell(visibleRowIndex, columnDef)
+            this._SetCellValue(cell, value, columnDef)
+            if (this.verboseCellLogging) {
+                this._LogReadBack(cell, columnDef, cellPath)
+            }
+        } catch {
+            this.lastFailure := "Failed writing absolute row " absoluteRowIndex
+                . ", visible row " visibleRowIndex
+                . ", column " columnDef.index
+                . ", path " cellPath
+                . ", value " value
+                . ", LastError=" A_LastError
+            this._Log("ERROR", this.lastFailure)
+            throw Error(this.lastFailure)
+        }
+    }
+
+    _SyncScrollForAbsoluteRow(absoluteRowIndex) {
+        this._RefreshTable()
+        table := this.table
+        maxScroll := table.VerticalScrollbar.Maximum
+        scrollPos := Min(absoluteRowIndex, maxScroll)
+
+        if (scrollPos != table.VerticalScrollbar.Position) {
+            this._Log("INFO", "Scroll to absoluteRow=" absoluteRowIndex " scrollPos=" scrollPos)
+            table.VerticalScrollbar.Position := scrollPos
+            this._WaitNotBusy()
+            Sleep(this.scrollPauseMs)
+            this._RefreshTable()
+            table := this.table
+            scrollPos := table.VerticalScrollbar.Position
+        }
+
+        visibleRow := absoluteRowIndex - scrollPos
+        this._LogTableState("SyncScroll absoluteRow=" absoluteRowIndex " visibleRow=" visibleRow)
+        return visibleRow
+    }
+
+    _CommitPage(visibleRowIndex, columns, absoluteRowIndex := "") {
+        lastColumnDef := columns[columns.Length]
+        cellPath := this._BuildCellPath(visibleRowIndex, lastColumnDef)
+        this._Log("INFO", "Commit page visibleRow=" visibleRowIndex
+            . " absoluteRow=" absoluteRowIndex
+            . " path=" cellPath)
+        cell := this._ResolveCell(visibleRowIndex, lastColumnDef)
+        cell.SetFocus()
+        this.session.FindById("wnd[0]").SendVKey(0)
+        this._WaitNotBusy()
+        this._RefreshTable()
     }
 
     Save(saveButtonId := "wnd[0]/tbar[0]/btn[11]") {
@@ -208,49 +361,7 @@ class Sm30BulkLoader {
     }
 
     _EnsureVisibleRow(absoluteRowIndex) {
-        this._RefreshTable()
-        table := this.table
-        scrollPos := table.VerticalScrollbar.Position
-        visibleCount := table.VisibleRowCount
-
-        while (absoluteRowIndex < scrollPos) {
-            this._Log("INFO", "Scroll up absoluteRow=" absoluteRowIndex " scrollPos=" scrollPos)
-            scrollPos -= 1
-            table.VerticalScrollbar.Position := scrollPos
-            this._WaitNotBusy()
-            Sleep(this.scrollPauseMs)
-            this._RefreshTable()
-            table := this.table
-            scrollPos := table.VerticalScrollbar.Position
-            visibleCount := table.VisibleRowCount
-        }
-
-        while (absoluteRowIndex >= scrollPos + visibleCount) {
-            nextPos := scrollPos + 1
-            if (nextPos > table.VerticalScrollbar.Maximum) {
-                this._Log("WARN", "Reached scroll max, creating row absoluteRow=" absoluteRowIndex
-                    . " scrollPos=" scrollPos " max=" table.VerticalScrollbar.Maximum)
-                this._CreateNewTableRow()
-                this._RefreshTable()
-                table := this.table
-                scrollPos := table.VerticalScrollbar.Position
-                visibleCount := table.VisibleRowCount
-                continue
-            }
-            this._Log("INFO", "Scroll down absoluteRow=" absoluteRowIndex
-                . " scrollPos=" scrollPos " -> " nextPos " visibleCount=" visibleCount)
-            table.VerticalScrollbar.Position := nextPos
-            scrollPos := nextPos
-            this._WaitNotBusy()
-            Sleep(this.scrollPauseMs)
-            this._RefreshTable()
-            table := this.table
-            visibleCount := table.VisibleRowCount
-        }
-
-        visibleRow := absoluteRowIndex - scrollPos
-        this._LogTableState("EnsureVisibleRow absoluteRow=" absoluteRowIndex " visibleRow=" visibleRow)
-        return visibleRow
+        return this._SyncScrollForAbsoluteRow(absoluteRowIndex)
     }
 
     _EnsurePhysicalRow(absoluteRowIndex) {
@@ -348,14 +459,7 @@ class Sm30BulkLoader {
     }
 
     _CommitRow(visibleRowIndex, columns) {
-        lastColumnDef := columns[columns.Length]
-        cellPath := this._BuildCellPath(visibleRowIndex, lastColumnDef)
-        this._Log("INFO", "Commit row visibleRow=" visibleRowIndex " path=" cellPath)
-        cell := this._ResolveCell(visibleRowIndex, lastColumnDef)
-        cell.SetFocus()
-        this.session.FindById("wnd[0]").SendVKey(0)
-        this._WaitNotBusy()
-        this._RefreshTable()
+        this._CommitPage(visibleRowIndex, columns)
     }
 
     _SetCellValue(cell, value, columnDef) {

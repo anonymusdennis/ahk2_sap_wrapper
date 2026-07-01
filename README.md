@@ -24,7 +24,12 @@ Runnable scripts use the `.ahk2` extension so they launch with AutoHotkey v2. Li
 
 ## SM30 bulk table fill
 
-Use `Sm30BulkLoader` to insert many rows into any SM30 maintenance view. The loader uses `GuiTableControl.GetCell()` and automatically scrolls the vertical scrollbar before writing rows that would fall outside the visible window.
+Use `Sm30BulkLoader` to insert many rows into any SM30 maintenance view. By default it fills **one visible page at a time** (column-major, one Enter per page) for much better speed than row-by-row mode.
+
+```ahk
+loader.SetFillMode("page")   ; default, fast
+loader.SetFillMode("row")    ; slow, verbose, useful for debugging
+```
 
 ```ahk
 #Requires AutoHotkey v2.0
