@@ -107,7 +107,12 @@ class Sm30JsonConfig {
             }
             return converted
         }
-        if (valueType = "Map" || valueType = "Object") {
+        if (valueType = "Object") {
+            ; Parser output is already a plain object (_SetProperty). On v2.1-alpha,
+            ; for-in over Object() throws "Value not enumerable".
+            return value
+        }
+        if (valueType = "Map") {
             converted := Object()
             for key, item in value {
                 Sm30JsonConfig._SetProperty(converted, key, Sm30JsonConfig._ToPlainObject(item))
