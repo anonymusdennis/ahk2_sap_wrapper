@@ -16,12 +16,16 @@ class Sm30BulkLoader {
         this.logger := ""
         this.logPath := ""
         this.lastFailure := ""
+        this.lastSkipCount := 0
         this.fillMode := "page"
         this.verboseCellLogging := false
         this.autoRecoverErrors := true
         this.skipErrorButtonId := "wnd[0]/tbar[1]/btn[20]"
         this.scrollPauseMs := 30
         this.rowCreatePauseMs := 80
+        this.expandWindowForThroughput := true
+        this.workingPaneWidth := 0
+        this.workingPaneHeight := 0
     }
 
     static Attach(policy := "") {
@@ -80,10 +84,17 @@ class Sm30BulkLoader {
         return this
     }
 
+    SetExpandWindowForThroughput(enabled := true, width := 0, height := 0) {
+        this.expandWindowForThroughput := enabled
+        this.workingPaneWidth := width
+        this.workingPaneHeight := height
+        return this
+    }
+
     OpenView(viewName) {
         this._Log("INFO", "OpenView start viewName=" viewName)
         wnd := this.session.FindById("wnd[0]")
-        wnd.Maximize()
+        this._ExpandWindowForThroughput(wnd)
         this.session.FindById("wnd[0]/tbar[0]/okcd").Text := "/nsm30"
         wnd.SendVKey(0)
         this._WaitNotBusy()
@@ -172,7 +183,8 @@ class Sm30BulkLoader {
             visibleRow := this._EnsureRowReadyForFill(absoluteRow, columns)
             this._Log("INFO", "Row mapped absoluteRow=" absoluteRow " visibleRow=" visibleRow)
             this._WriteRow(visibleRow, absoluteRow, columns, rowValues)
-            absoluteRow += 1
+            skipped := this.lastSkipCount
+            absoluteRow += 1 - skipped
         }
         return rows.Length
     }
@@ -180,6 +192,7 @@ class Sm30BulkLoader {
     _FillRowsByPage(columns, rows, startAbsoluteRow) {
         dataIndex := 1
         absoluteRow := startAbsoluteRow
+        this.lastSkipCount := 0
         totalRows := rows.Length
 
         while (dataIndex <= totalRows) {
@@ -200,7 +213,7 @@ class Sm30BulkLoader {
             skipped := this._CommitPage(lastVisibleRow, columns, absoluteEnd)
 
             dataIndex += rowsOnPage
-            absoluteRow += rowsOnPage
+            absoluteRow += rowsOnPage - skipped
             if (skipped > 0) {
                 this._Log("INFO", "Skipped " skipped " error entries; continue at absoluteRow="
                     . absoluteRow " dataIndex=" dataIndex)
@@ -259,29 +272,35 @@ class Sm30BulkLoader {
     _SyncScrollForAbsoluteRow(absoluteRowIndex) {
         this._RefreshTable()
         table := this.table
-        visibleCount := table.VisibleRowCount
-        maxScroll := table.VerticalScrollbar.Maximum
-        scrollPos := Min(absoluteRowIndex, maxScroll)
+        metrics := this._ReadTableScrollMetrics(table)
+        visibleCount := metrics["visibleCount"]
+        maxScroll := metrics["maxScroll"]
+        scrollPos := metrics["scrollPos"]
 
-        if (absoluteRowIndex - scrollPos >= visibleCount) {
-            scrollPos := absoluteRowIndex - visibleCount + 1
-            if (scrollPos < 0) {
-                scrollPos := 0
+        desiredScrollPos := absoluteRowIndex
+        if (desiredScrollPos > maxScroll) {
+            desiredScrollPos := maxScroll
+        }
+        if (absoluteRowIndex - desiredScrollPos >= visibleCount) {
+            desiredScrollPos := absoluteRowIndex - visibleCount + 1
+            if (desiredScrollPos < 0) {
+                desiredScrollPos := 0
             }
-            if (scrollPos > maxScroll) {
-                scrollPos := maxScroll
+            if (desiredScrollPos > maxScroll) {
+                desiredScrollPos := maxScroll
             }
         }
 
-        if (scrollPos != table.VerticalScrollbar.Position) {
-            this._Log("INFO", "Scroll to absoluteRow=" absoluteRowIndex " scrollPos=" scrollPos)
-            table.VerticalScrollbar.Position := scrollPos
+        if (desiredScrollPos != scrollPos) {
+            this._Log("INFO", "Scroll to absoluteRow=" absoluteRowIndex " scrollPos=" desiredScrollPos)
+            table.VerticalScrollbar.Position := desiredScrollPos
             this._WaitNotBusy()
             Sleep(this.scrollPauseMs)
             this._RefreshTable()
             table := this.table
-            scrollPos := table.VerticalScrollbar.Position
-            visibleCount := table.VisibleRowCount
+            metrics := this._ReadTableScrollMetrics(table)
+            scrollPos := metrics["scrollPos"]
+            visibleCount := metrics["visibleCount"]
         }
 
         visibleRow := absoluteRowIndex - scrollPos
@@ -298,13 +317,101 @@ class Sm30BulkLoader {
         return visibleRow
     }
 
+    _ReadTableScrollMetrics(table := "") {
+        if (!IsObject(table)) {
+            this._RefreshTable()
+            table := this.table
+        }
+        scrollPos := 0
+        maxScroll := 0
+        visibleCount := 0
+        try {
+            scrollPos := table.VerticalScrollbar.Position
+            maxScroll := table.VerticalScrollbar.Maximum
+            visibleCount := table.VisibleRowCount
+        } catch {
+        }
+        return Map(
+            "scrollPos", scrollPos,
+            "maxScroll", maxScroll,
+            "visibleCount", visibleCount
+        )
+    }
+
+    _ScrollTableBy(deltaRows) {
+        if (deltaRows = 0) {
+            return 0
+        }
+        this._RefreshTable()
+        table := this.table
+        metrics := this._ReadTableScrollMetrics(table)
+        scrollPos := metrics["scrollPos"]
+        maxScroll := metrics["maxScroll"]
+        newPos := scrollPos + deltaRows
+        if (newPos < 0) {
+            newPos := 0
+        }
+        if (newPos > maxScroll) {
+            newPos := maxScroll
+        }
+        if (newPos = scrollPos) {
+            return 0
+        }
+        this._Log("INFO", "Adjust scroll by " deltaRows " from " scrollPos " to " newPos)
+        table.VerticalScrollbar.Position := newPos
+        this._WaitNotBusy()
+        Sleep(this.scrollPauseMs)
+        this._RefreshTable()
+        return newPos - scrollPos
+    }
+
+    _IsVisibleRowChangeable(visibleRowIndex, columns, absoluteRowIndex := "") {
+        for columnDef in columns {
+            cellPath := this._BuildCellPath(visibleRowIndex, columnDef)
+            try {
+                cell := this._ResolveCell(visibleRowIndex, columnDef)
+                if (!this._IsCellChangeable(cell)) {
+                    if (absoluteRowIndex != "") {
+                        this._Log("WARN", "Cell not changeable absoluteRow=" absoluteRowIndex
+                            . " visibleRow=" visibleRowIndex
+                            . " column=" columnDef.index
+                            . " path=" cellPath)
+                    }
+                    return false
+                }
+            } catch {
+                if (absoluteRowIndex != "") {
+                    this._Log("WARN", "Cell not reachable absoluteRow=" absoluteRowIndex
+                        . " visibleRow=" visibleRowIndex
+                        . " column=" columnDef.index
+                        . " path=" cellPath)
+                }
+                return false
+            }
+        }
+        return true
+    }
+
+    _CountTrailingNonWritableRows(visibleStartRow, rowCount, columns, absoluteStartRow) {
+        trailing := 0
+        loop rowCount {
+            visibleRow := visibleStartRow + rowCount - A_Index
+            absoluteRowIndex := absoluteStartRow + rowCount - A_Index
+            if (this._IsVisibleRowChangeable(visibleRow, columns, absoluteRowIndex)) {
+                break
+            }
+            trailing += 1
+        }
+        return trailing
+    }
+
     _EnsurePageReadyForFill(absoluteRow, remaining, columns) {
         attempt := 0
         targetAbsoluteRow := absoluteRow
-        while (attempt < 4) {
+        while (attempt < 8) {
             attempt += 1
             visibleStart := this._SyncScrollForAbsoluteRow(targetAbsoluteRow)
-            visibleCount := this.table.VisibleRowCount
+            visibleCount := this._ReadTableScrollMetrics()["visibleCount"]
             rowsOnPage := Min(visibleCount - visibleStart, remaining)
             if (rowsOnPage <= 0) {
                 throw Error("Could not fit any rows on screen at absolute row " targetAbsoluteRow ".")
@@ -317,10 +424,18 @@ class Sm30BulkLoader {
                 return Map("visibleStart", visibleStart, "rowsOnPage", rowsOnPage)
             }
 
+            trailingBad := this._CountTrailingNonWritableRows(
+                visibleStart, rowsOnPage, columns, targetAbsoluteRow)
+            if (trailingBad > 0) {
+                this._Log("WARN", "Trailing non-writable rows=" trailingBad
+                    . " at absoluteRow=" targetAbsoluteRow " attempt=" attempt)
+                this._ScrollTableBy(-trailingBad)
+                continue
+            }
+
             this._Log("WARN", "Page cells not writable at absoluteRow=" targetAbsoluteRow
-                . " attempt=" attempt " rowCount=" this.table.RowCount)
-            this._RefreshTable()
-            targetAbsoluteRow := this.table.RowCount
+                . " attempt=" attempt " visibleCount=" visibleCount)
+            this._ScrollTableBy(-1)
         }
 
         this.lastFailure := "Target page cells are not open for input at absolute row " absoluteRow
@@ -330,16 +445,15 @@ class Sm30BulkLoader {
     _EnsureRowReadyForFill(absoluteRow, columns) {
         attempt := 0
         targetAbsoluteRow := absoluteRow
-        while (attempt < 4) {
+        while (attempt < 8) {
             attempt += 1
             visibleRow := this._SyncScrollForAbsoluteRow(targetAbsoluteRow)
-            if (this._ValidatePageChangeable(visibleRow, 1, columns, targetAbsoluteRow)) {
+            if (this._IsVisibleRowChangeable(visibleRow, columns, targetAbsoluteRow)) {
                 return visibleRow
             }
             this._Log("WARN", "Row cells not writable at absoluteRow=" targetAbsoluteRow
                 . " attempt=" attempt)
-            this._RefreshTable()
-            targetAbsoluteRow := this.table.RowCount
+            this._ScrollTableBy(-1)
         }
 
         this.lastFailure := "Target row cells are not open for input at absolute row " absoluteRow
@@ -350,24 +464,8 @@ class Sm30BulkLoader {
         loop rowCount {
             visibleRow := visibleStartRow + A_Index - 1
             absoluteRowIndex := absoluteStartRow + A_Index - 1
-            for columnDef in columns {
-                cellPath := this._BuildCellPath(visibleRow, columnDef)
-                try {
-                    cell := this._ResolveCell(visibleRow, columnDef)
-                    if (!this._IsCellChangeable(cell)) {
-                        this._Log("WARN", "Cell not changeable absoluteRow=" absoluteRowIndex
-                            . " visibleRow=" visibleRow
-                            . " column=" columnDef.index
-                            . " path=" cellPath)
-                        return false
-                    }
-                } catch {
-                    this._Log("WARN", "Cell not reachable absoluteRow=" absoluteRowIndex
-                        . " visibleRow=" visibleRow
-                        . " column=" columnDef.index
-                        . " path=" cellPath)
-                    return false
-                }
+            if (!this._IsVisibleRowChangeable(visibleRow, columns, absoluteRowIndex)) {
+                return false
             }
         }
         return true
@@ -409,6 +507,7 @@ class Sm30BulkLoader {
         this._WaitNotBusy()
         this._RefreshTable()
         skipped := this._RecoverFromSapErrors()
+        this.lastSkipCount := skipped
         if (skipped > 0) {
             this._PressEnterAfterRecovery(visibleRowIndex)
         }
@@ -456,6 +555,42 @@ class Sm30BulkLoader {
         }
         this._Log("INFO", "LoadCsv path=" csvPath " rows=" rows.Length)
         return rows
+    }
+
+    _ExpandWindowForThroughput(wnd) {
+        if (!this.expandWindowForThroughput) {
+            try {
+                wnd.Maximize()
+            } catch {
+            }
+            return
+        }
+
+        try {
+            wnd.Maximize()
+        } catch {
+        }
+
+        width := this.workingPaneWidth
+        height := this.workingPaneHeight
+        if (width <= 0) {
+            width := 9999
+        }
+        if (height <= 0) {
+            height := 9999
+        }
+
+        try {
+            wnd.ResizeWorkingPaneEx(width, height, false)
+            this._Log("INFO", "Expanded working pane width=" width " height=" height)
+        } catch {
+            try {
+                wnd.ResizeWorkingPane(width, height, false)
+                this._Log("INFO", "Expanded working pane (legacy) width=" width " height=" height)
+            } catch {
+                this._Log("WARN", "Could not expand working pane; using maximize only")
+            }
+        }
     }
 
     _RelativeFindById(fullId) {

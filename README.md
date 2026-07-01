@@ -83,9 +83,11 @@ Column `kind` values:
 
 For tables with a non-standard toolbar button layout, pass explicit button IDs to `EnterMaintenance()`, `NewEntries()`, or `Save()`.
 
-Duplicate/error recovery during save uses the status bar message (`wnd[0]/sbar`) and skips invalid rows via `wnd[0]/tbar[1]/btn[20]` until no error remains. After skips, the loader presses Enter again and resyncs scroll from the current `RowCount` so removed rows do not push writes past the visible edge.
+Duplicate/error recovery during save uses the status bar message (`wnd[0]/sbar`) and skips invalid rows via `wnd[0]/tbar[1]/btn[20]` until no error remains. Skipped rows are subtracted from the absolute row cursor so scroll lands on the next real row (not preallocated empty slots). After skips, Enter is pressed once to continue.
 
-Before each page/row fill, target cells are checked with `Changeable` and scroll is adjusted if they are not writable.
+Before each page/row fill, target cells are checked with `Changeable`. If the bottom of the page is not writable, the loader counts trailing blocked rows and scrolls up by that amount (handles window resize via fresh `VisibleRowCount` reads).
+
+By default `OpenView()` maximizes the SAP window and expands the working pane (`ResizeWorkingPaneEx`) for more visible rows per page. Disable with `SetExpandWindowForThroughput(false)`.
 
 ```ahk
 loader.SetErrorRecovery(true, "wnd[0]/tbar[1]/btn[20]")
