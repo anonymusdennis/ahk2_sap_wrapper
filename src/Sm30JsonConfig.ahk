@@ -110,7 +110,7 @@ class Sm30JsonConfig {
         if (valueType = "Map" || valueType = "Object") {
             converted := Object()
             for key, item in value {
-                converted[key] := Sm30JsonConfig._ToPlainObject(item)
+                Sm30JsonConfig._SetProperty(converted, key, Sm30JsonConfig._ToPlainObject(item))
             }
             return converted
         }
@@ -118,7 +118,10 @@ class Sm30JsonConfig {
     }
 
     static _SetProperty(obj, key, value) {
-        obj[key] := value
+        if (!RegExMatch(key, "^[A-Za-z_]\w*$")) {
+            throw Error("Unsupported JSON property name (must be a valid identifier): " key)
+        }
+        obj.%key% := value
     }
 }
 

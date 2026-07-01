@@ -75,13 +75,11 @@ _OnResize(senderGui, minMax, width, height, *) { }
 
 ### 2. Plain objects vs Map
 
-On some builds (including **v2.1-alpha**), `{}` or parsed data may behave as **`Map`**, not a plain **`Object`**.
+On some builds (including **v2.1-alpha**):
 
-- **`HasOwnProp()`** works on plain objects; on **`Map`** use **`.Has(key)`** or convert first.
-- Prefer **`Object()`** and **`obj[key] := value`** for config/data loaded from JSON.
-- Use **`Sm30JsonConfig._ToPlainObject()`** (or the same pattern) before code that calls **`HasOwnProp()`** everywhere.
-
-**Do not** wrap load logic in a bare `catch { }` that replaces the real error with `LastError=0`.
+- **`obj[key] := value`** on plain **`Object()`** can fail with *no property named `__Item`* — use **`obj.%key% := value`** for identifier keys (`id`, `index`, `kind`, …).
+- **`HasOwnProp()`** on **`Map`** fails — convert to plain **`Object()`** first or use **`.Has(key)`**.
+- Do not wrap JSON load in a bare `catch { }` that hides the real error.
 
 ---
 
