@@ -4,7 +4,7 @@
 ; Generates dummy PFEPRUNTYPE rows (default 60) and fills them via SM30.
 ; Run with SAP GUI open, scripting enabled, and a logged-in session.
 ;
-; Optional CLI: sm30_dummy_fill_test.ahk 120
+; Optional CLI: sm30_dummy_fill_test.ahk2 120
 
 DEFAULT_ROW_COUNT := 60
 VIEW_NAME := "/WUE/PFEPRUNTYPE"
@@ -87,5 +87,16 @@ BuildPreviewText(rows, maxLines := 5) {
     if (rows.Length > previewCount) {
         lines.Push("... (" (rows.Length - previewCount) " more rows)")
     }
-    return lines.Join("`n")
+    return JoinLines(lines, "`n")
+}
+
+JoinLines(lines, delimiter := "`n") {
+    output := ""
+    for line in lines {
+        if (output != "") {
+            output .= delimiter
+        }
+        output .= line
+    }
+    return output
 }

@@ -18,7 +18,9 @@ ses.FindById("wnd[0]").SendVKey(0)
 MsgBox(ses.Info.SystemName)
 ```
 
-See `/examples/demo_rot_attach.ahk` for a runnable example.
+See `/examples/demo_rot_attach.ahk2` for a runnable example.
+
+Runnable scripts use the `.ahk2` extension so they launch with AutoHotkey v2. Library/includes stay as `.ahk`.
 
 ## SM30 bulk table fill
 
@@ -47,13 +49,13 @@ loader
     .Save()
 ```
 
-Runnable example: `/examples/sm30_bulk_fill.ahk`
+Runnable example: `/examples/sm30_bulk_fill.ahk2`
 
 Dummy data test (generates 60 rows by default, then uploads to `/WUE/PFEPRUNTYPE`):
 
-```ahk
-; examples/sm30_dummy_fill_test.ahk
-; Optional: sm30_dummy_fill_test.ahk 120
+```text
+examples/sm30_dummy_fill_test.ahk2
+examples/sm30_dummy_fill_test.ahk2 120
 ```
 
 Column `kind` values:
