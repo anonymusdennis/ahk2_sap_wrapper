@@ -116,12 +116,13 @@ python scripts/generate_sample_excel.py
 **Step 1 — Load Excel**
 - Browse for `.xlsx` / `.xlsm` / `.xls` (requires Microsoft Excel installed)
 - Choose worksheet when the workbook has multiple sheets
+- Choose SAP session from dropdown (Refresh list)
 - Choose the SM30 customizing table
 - Preview loaded rows
-- **Test first row in SAP** writes row 1 using the active SAP session (no save)
+- **Test first row in SAP** writes row 1 using the selected session (no save)
 
 **Step 2 — Run**
-- Pick SAP session from dropdown (Refresh list)
+- Shows the session chosen on step 1
 - **Auto-save when finished** is off by default
 - Progress bar during import
 - Open log file / logs folder buttons
