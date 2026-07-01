@@ -17,6 +17,7 @@ class Sm30BulkImportGui {
         this.tableDef := Sm30TableCatalog.GetByIndex(1)
         this.rows := []
         this.sessionEntries := []
+        this.selectedSessionEntry := ""
         this.importRunning := false
         this._BuildExcelWindow()
         this._BuildRunWindow()
@@ -24,6 +25,7 @@ class Sm30BulkImportGui {
 
     Show() {
         this._ResetExcelWindow()
+        this._RefreshSessions()
         this.excelGui.Show()
     }
 
@@ -53,11 +55,17 @@ class Sm30BulkImportGui {
         this.tableCombo := excelWin.Add("DropDownList", "x+0 w500 Choose1", tableLabels)
         this.tableCombo.OnEvent("Change", ObjBindMethod(this, "_OnTableChanged"))
 
+        excelWin.Add("GroupBox", "xm w640 h90 Section", "SAP session")
+        excelWin.Add("Text", "xs+20 ys+24 w110", "Session:")
+        this.sessionCombo := excelWin.Add("DropDownList", "x+0 w500 Choose1", ["(no SAP sessions found)"])
+        refreshSessionsBtn := excelWin.Add("Button", "xs+130 y+10 w120", "Refresh list")
+        refreshSessionsBtn.OnEvent("Click", ObjBindMethod(this, "_RefreshSessions"))
+
         excelWin.Add("GroupBox", "xm w640 h220 Section", "Preview")
         this.rowCountText := excelWin.Add("Text", "xs+20 ys+20 w600", "Rows loaded: 0")
         this.previewEdit := excelWin.Add("Edit", "xs w600 h150 ReadOnly -VScroll", "(no data loaded)")
 
-        excelWin.Add("Text", "xm w640 cGray", "The test write uses the active SAP GUI session and does not save.")
+        excelWin.Add("Text", "xm w640 cGray", "Test write uses the selected SAP session above and does not save.")
         testBtn := excelWin.Add("Button", "xm w200 h32", "Test first row in SAP")
         testBtn.OnEvent("Click", ObjBindMethod(this, "_TestFirstRow"))
 
@@ -76,12 +84,6 @@ class Sm30BulkImportGui {
 
         runWin.Add("Text", "w620", "Upload loaded Excel rows into the selected SAP session.")
         this.runSummaryText := runWin.Add("Text", "w620", "")
-
-        runWin.Add("GroupBox", "xm w640 h90 Section", "SAP session")
-        runWin.Add("Text", "xs+20 ys+24 w110", "Session:")
-        this.sessionCombo := runWin.Add("DropDownList", "x+0 w500 Choose1", ["(no SAP sessions found)"])
-        refreshBtn := runWin.Add("Button", "xs+130 y+10 w120", "Refresh list")
-        refreshBtn.OnEvent("Click", ObjBindMethod(this, "_RefreshSessions"))
 
         runWin.Add("GroupBox", "xm w640 h70 Section", "Options")
         this.autoSaveCheck := runWin.Add("CheckBox", "xs+20 ys+26 Checked0", "Press Save in SAP when import finishes")
@@ -220,19 +222,49 @@ class Sm30BulkImportGui {
         return true
     }
 
+    _ValidateSessionSelected(showMessage := true) {
+        if (this.sessionEntries.Length = 0) {
+            if (showMessage) {
+                MsgBox("No SAP sessions available.`n`nOpen SAP GUI, log in, then click Refresh list.",
+                    "SAP session", "Icon!")
+            }
+            return false
+        }
+        sessionIndex := this.sessionCombo.Value
+        if (sessionIndex < 1 || sessionIndex > this.sessionEntries.Length) {
+            if (showMessage) {
+                MsgBox("Select a SAP session.", "SAP session", "Icon!")
+            }
+            return false
+        }
+        return true
+    }
+
+    _GetSelectedSessionEntry() {
+        if (!this._ValidateSessionSelected(false)) {
+            return ""
+        }
+        return this.sessionEntries[this.sessionCombo.Value]
+    }
+
     _OnExcelOk(*) {
         if (!this._ValidateExcelStep()) {
             return
         }
+        if (!this._ValidateSessionSelected()) {
+            return
+        }
+        this.selectedSessionEntry := this._GetSelectedSessionEntry()
         this.excelGui.Hide()
         this._OpenRunWindow()
     }
 
     _OpenRunWindow() {
-        this._RefreshSessions()
+        sessionLabel := this.selectedSessionEntry.label
         summary := "File: " this.excelPath "`n"
             . "Worksheet: " this.selectedSheet "`n"
             . "Table: " this.tableDef.label "`n"
+            . "SAP session: " sessionLabel "`n"
             . "Rows to import: " this.rows.Length "`n"
             . "Log file: " this.logPath
         this.runSummaryText.Value := summary
@@ -263,19 +295,16 @@ class Sm30BulkImportGui {
         if (!this._ValidateExcelStep()) {
             return
         }
-
-        session := Sm30SapSessions.GetActiveSession(this.policy)
-        if (!IsObject(session)) {
-            MsgBox("No active SAP GUI session found.`n`nOpen SAP, log in, and make the target session active.",
-                "Test row", "Icon!")
+        if (!this._ValidateSessionSelected()) {
             return
         }
 
+        sessionEntry := this._GetSelectedSessionEntry()
         testRow := [this.rows[1].Clone()]
         hookPolicy := LoggingSapHookPolicy(this.logger)
         loader := ""
         try {
-            loader := Sm30BulkLoader.FromSession(session, hookPolicy)
+            loader := Sm30BulkLoader.FromSession(sessionEntry.session, hookPolicy)
             loader.SetLogger(this.logger)
             loader.SetFillMode("row")
             loader.SetQuietComLogging(false)
@@ -287,6 +316,7 @@ class Sm30BulkImportGui {
             loader.FillRows(this.tableDef.columns, testRow)
             this.logger.Info("Test row write succeeded for table " this.tableDef.viewName)
             MsgBox("Test row written successfully.`n`n"
+                . "Session: " sessionEntry.label "`n"
                 . "Table: " this.tableDef.label "`n"
                 . "Values: " Sm30ExcelImport._JoinFields(testRow[1], " | ") "`n`n"
                 . "Nothing was saved. Check SAP, then continue with OK if the row looks correct.`n`n"
@@ -303,14 +333,8 @@ class Sm30BulkImportGui {
         if (this.importRunning) {
             return
         }
-        if (this.sessionEntries.Length = 0) {
-            MsgBox("No SAP sessions available. Open SAP GUI and click Refresh list.", "Import", "Icon!")
-            return
-        }
-
-        sessionIndex := this.sessionCombo.Value
-        if (sessionIndex < 1 || sessionIndex > this.sessionEntries.Length) {
-            MsgBox("Select a SAP session.", "Import", "Icon!")
+        if (!IsObject(this.selectedSessionEntry)) {
+            MsgBox("No SAP session selected. Go back and choose a session.", "Import", "Icon!")
             return
         }
 
@@ -319,7 +343,7 @@ class Sm30BulkImportGui {
         this.progressBar.Value := 0
         this.statusText.Value := "Starting import..."
 
-        sessionEntry := this.sessionEntries[sessionIndex]
+        sessionEntry := this.selectedSessionEntry
         hookPolicy := LoggingSapHookPolicy(this.logger)
         loader := ""
         filledCount := 0

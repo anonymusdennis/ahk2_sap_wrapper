@@ -210,8 +210,8 @@ If `RowCount` does **not** increase after Enter, **fail fast** — do not loop 1
 
 Two-step flow works well:
 
-1. **Load Excel** — file, worksheet (enable dropdown only if `sheetNames.Length > 1`), table catalog, preview, test one row (active session, no save).
-2. **Run** — session dropdown, auto-save off by default, progress bar, log buttons.
+1. **Load Excel** — file, worksheet (enable dropdown only if `sheetNames.Length > 1`), **SAP session dropdown + refresh**, table catalog, preview, test one row (selected session, no save).
+2. **Run** — session shown in summary (chosen on step 1), auto-save off by default, progress bar, log buttons.
 
 Excel reading requires **Microsoft Excel installed** (COM: `Excel.Application`). Regenerate sample: `python scripts/generate_sample_excel.py` → `examples/data/pfepruntype_sample.xlsx`.
 
