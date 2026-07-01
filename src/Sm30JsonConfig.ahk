@@ -191,7 +191,7 @@ class Sm30JsonParser {
         if (ch = "n") {
             return this._ReadNull()
         }
-        if (ch = "-" || (ch >= "0" && ch <= "9")) {
+        if (ch = "-" || this._IsDigit(ch)) {
             return this._ReadNumber()
         }
         this._Fail("Invalid JSON value at position " this.pos)
@@ -318,6 +318,10 @@ class Sm30JsonParser {
         this._Fail("Invalid JSON null at position " this.pos)
     }
 
+    _IsDigit(ch) {
+        return ch != "" && InStr("0123456789", ch)
+    }
+
     _ReadNumber() {
         start := this.pos
         if (SubStr(this.text, this.pos, 1) = "-") {
@@ -325,7 +329,7 @@ class Sm30JsonParser {
         }
         while (this.pos <= this.len) {
             ch := SubStr(this.text, this.pos, 1)
-            if (ch < "0" || ch > "9") {
+            if (!this._IsDigit(ch)) {
                 break
             }
             this.pos += 1
@@ -334,7 +338,7 @@ class Sm30JsonParser {
             this.pos += 1
             while (this.pos <= this.len) {
                 ch := SubStr(this.text, this.pos, 1)
-                if (ch < "0" || ch > "9") {
+                if (!this._IsDigit(ch)) {
                     break
                 }
                 this.pos += 1
