@@ -143,7 +143,7 @@ class Sm30BulkLoader {
             fields := this._ParseCsvLine(trimmed, delimiter)
             rowValues := []
             for columnDef in columns {
-                sourceIndex := HasOwnProp(columnDef, "csvIndex")
+                sourceIndex := columnDef.HasOwnProp("csvIndex")
                     ? columnDef.csvIndex
                     : columnDef.index
                 if (sourceIndex >= fields.Length) {
@@ -269,12 +269,12 @@ class Sm30BulkLoader {
         loop columnCount {
             columnDef := columns[A_Index]
             value := rowValues[A_Index]
-            cellPath := HasOwnProp(columnDef, "field") ? this._BuildCellPath(visibleRowIndex, columnDef) : "<GetCell>"
+            cellPath := columnDef.HasOwnProp("field") ? this._BuildCellPath(visibleRowIndex, columnDef) : "<GetCell>"
             try {
                 this._Log("INFO", "Write cell absoluteRow=" absoluteRowIndex
                     . " visibleRow=" visibleRowIndex
                     . " column=" columnDef.index
-                    . " kind=" (HasOwnProp(columnDef, "kind") ? columnDef.kind : "Text")
+                    . " kind=" (columnDef.HasOwnProp("kind") ? columnDef.kind : "Text")
                     . " path=" cellPath
                     . " value=" value)
                 cell := this._ResolveCell(visibleRowIndex, columnDef)
@@ -296,7 +296,7 @@ class Sm30BulkLoader {
     }
 
     _ResolveCell(visibleRowIndex, columnDef) {
-        if (HasOwnProp(columnDef, "field") && HasOwnProp(columnDef, "prefix")) {
+        if (columnDef.HasOwnProp("field") && columnDef.HasOwnProp("prefix")) {
             return this.session.FindById(this._BuildCellPath(visibleRowIndex, columnDef))
         }
         return this.table.GetCell(visibleRowIndex, columnDef.index)
@@ -320,7 +320,7 @@ class Sm30BulkLoader {
     }
 
     _SetCellValue(cell, value, columnDef) {
-        kind := HasOwnProp(columnDef, "kind") ? columnDef.kind : "Text"
+        kind := columnDef.HasOwnProp("kind") ? columnDef.kind : "Text"
         if (kind = "Key") {
             cell.Key := value
             return
@@ -333,7 +333,7 @@ class Sm30BulkLoader {
     }
 
     _LogReadBack(cell, columnDef, cellPath) {
-        kind := HasOwnProp(columnDef, "kind") ? columnDef.kind : "Text"
+        kind := columnDef.HasOwnProp("kind") ? columnDef.kind : "Text"
         readBack := "<unavailable>"
         try {
             if (kind = "Key") {
@@ -373,10 +373,10 @@ class Sm30BulkLoader {
 
     _LogColumns(columns) {
         for columnDef in columns {
-            name := HasOwnProp(columnDef, "name") ? columnDef.name : ""
-            field := HasOwnProp(columnDef, "field") ? columnDef.field : ""
-            prefix := HasOwnProp(columnDef, "prefix") ? columnDef.prefix : ""
-            kind := HasOwnProp(columnDef, "kind") ? columnDef.kind : "Text"
+            name := columnDef.HasOwnProp("name") ? columnDef.name : ""
+            field := columnDef.HasOwnProp("field") ? columnDef.field : ""
+            prefix := columnDef.HasOwnProp("prefix") ? columnDef.prefix : ""
+            kind := columnDef.HasOwnProp("kind") ? columnDef.kind : "Text"
             this._Log("INFO", "Column index=" columnDef.index
                 . " kind=" kind
                 . " prefix=" prefix
