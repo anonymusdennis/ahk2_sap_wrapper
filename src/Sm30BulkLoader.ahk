@@ -705,26 +705,46 @@ class Sm30BulkLoader {
     _HasSapError() {
         try {
             sbar := this.session.FindById("wnd[0]/sbar")
+            msgType := sbar.MessageType
+            if (msgType != "E" && msgType != "A") {
+                return false
+            }
             msgText := Trim(sbar.Text)
             if (msgText = "") {
                 return false
             }
-            msgType := sbar.MessageType
-            if (msgType = "E" || msgType = "A") {
-                return true
-            }
-            if (InStr(msgText, "Meldungsnr.") || InStr(msgText, "Message no.")) {
-                return true
-            }
+            return true
         } catch {
         }
         return false
     }
 
+    _RequiresSkipRecovery() {
+        return this._HasSapError() && this._IsSkipButtonAvailable(this.skipErrorButtonId)
+    }
+
+    _ReadStatusSnapshot() {
+        try {
+            sbar := this.session.FindById("wnd[0]/sbar")
+            return sbar.MessageType "|" sbar.MessageId "|" sbar.MessageNumber "|" Trim(sbar.Text)
+        } catch {
+            return ""
+        }
+    }
+
     _IsSkipButtonAvailable(skipButtonId) {
         try {
             btn := this.session.FindById(skipButtonId)
-            return btn.Type = "GuiButton"
+            if (btn.Type != "GuiButton") {
+                return false
+            }
+            try {
+                if (btn.Changeable = 0 || btn.Changeable = false) {
+                    return false
+                }
+            } catch {
+            }
+            return true
         } catch {
             return false
         }
@@ -750,28 +770,40 @@ class Sm30BulkLoader {
 
         skipCount := 0
         guard := 0
+        stalled := false
         while (guard < 1000) {
-            if (!this._HasSapError()) {
+            if (!this._RequiresSkipRecovery()) {
                 break
             }
-            if (!this._IsSkipButtonAvailable(this.skipErrorButtonId)) {
-                this._LogSapMessage("Unresolved SAP message, skip button unavailable")
-                this.lastFailure := "SAP error and skip button unavailable"
-                throw Error(this.lastFailure)
-            }
 
+            snapshotBefore := this._ReadStatusSnapshot()
             this._LogSapMessage("Recovering SAP error")
             this.session.FindById(this.skipErrorButtonId).Press()
             this._WaitNotBusy()
-            Sleep(50)
+            Sleep(100)
             skipCount += 1
             guard += 1
+
+            if (!this._RequiresSkipRecovery()) {
+                break
+            }
+
+            snapshotAfter := this._ReadStatusSnapshot()
+            if (snapshotAfter = snapshotBefore) {
+                this._Log("WARN", "Skip button had no effect; stopping recovery loop")
+                stalled := true
+                break
+            }
         }
 
-        if (this._HasSapError()) {
+        if (this._RequiresSkipRecovery() && !stalled) {
             this._LogSapMessage("SAP error remains after skip recovery")
             this.lastFailure := "SAP error remains after skip recovery"
             throw Error(this.lastFailure)
+        }
+
+        if (stalled && this._HasSapError()) {
+            this._LogSapMessage("Status bar still shows error after skip stopped having effect")
         }
 
         if (skipCount > 0) {
