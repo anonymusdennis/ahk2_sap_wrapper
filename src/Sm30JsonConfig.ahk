@@ -213,7 +213,7 @@ class Sm30JsonParser {
                 this._Fail("Expected ':' in JSON object at position " this.pos)
             }
             this.pos += 1
-            obj[key] := this._ReadValue()
+            Sm30JsonConfig._SetProperty(obj, key, this._ReadValue())
             this._SkipWhitespace()
             ch := SubStr(this.text, this.pos, 1)
             if (ch = "}") {
