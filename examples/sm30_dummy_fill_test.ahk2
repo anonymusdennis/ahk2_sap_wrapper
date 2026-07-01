@@ -5,6 +5,7 @@
 ; Run with SAP GUI open, scripting enabled, and a logged-in session.
 ;
 ; Optional CLI: sm30_dummy_fill_test.ahk2 120
+; Logs are written to ../logs/ (gitignored).
 
 DEFAULT_ROW_COUNT := 60
 VIEW_NAME := "/WUE/PFEPRUNTYPE"
@@ -29,14 +30,19 @@ if (rowCount < 1) {
     ExitApp(1)
 }
 
+logger := SapFileLogger()
+policy := LoggingSapHookPolicy(logger)
+
 rows := GeneratePfepDummyRows(rowCount)
 preview := BuildPreviewText(rows, 5)
 failureDetail := ""
 loader := ""
 
+logger.Info("Dummy fill test starting rows=" rowCount " view=" VIEW_NAME)
+
 try {
-    policy := SapHookPolicy()
     loader := Sm30BulkLoader.Attach(policy)
+    loader.SetLogger(logger)
 
     loader
         .OpenView(VIEW_NAME)
@@ -47,7 +53,9 @@ try {
     filledCount := loader.FillRows(PFEP_COLUMNS, rows)
     loader.Save()
 
+    logger.Info("Dummy fill test succeeded rows=" filledCount)
     MsgBox("Generated and filled " filledCount " dummy rows into " VIEW_NAME ".`n`n"
+        . "Log file:`n" logger.logPath "`n`n"
         . "First rows:`n" preview)
 } catch {
     if (loader != "" && loader.lastFailure != "") {
@@ -55,10 +63,12 @@ try {
     } else {
         failureDetail := "SAP interaction failed before or during table fill."
     }
+    logger.Error("Dummy fill test failed: " failureDetail)
     MsgBox("Dummy fill test failed.`n`n"
         . failureDetail "`n`n"
         . "Generated " rows.Length " rows but could not complete the SAP upload.`n"
         . "Ensure SAP GUI is open, scripting is enabled, and you are logged in.`n`n"
+        . "Log file:`n" logger.logPath "`n`n"
         . "Preview:`n" preview)
 }
 

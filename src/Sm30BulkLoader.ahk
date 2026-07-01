@@ -1,6 +1,7 @@
 #Requires AutoHotkey v2.0
 
 #Include SapWrapper.ahk
+#Include core/SapFileLogger.ahk
 
 ; Bulk-load rows into any SM30 maintenance view using SAP GUI Scripting.
 ; Handles vertical scrolling so writes never target rows outside the visible window.
@@ -11,6 +12,8 @@ class Sm30BulkLoader {
         this.table := ""
         this.tablePath := ""
         this.columns := []
+        this.logger := ""
+        this.logPath := ""
         this.lastFailure := ""
         this.scrollPauseMs := 30
         this.rowCreatePauseMs := 80
@@ -22,14 +25,36 @@ class Sm30BulkLoader {
         appCom := sapGuiAuto.GetScriptingEngine
         app := GuiApplication(appCom, hookPolicy)
         session := app.Children[0].Children[0]
-        return Sm30BulkLoader(session, hookPolicy)
+        loader := Sm30BulkLoader(session, hookPolicy)
+        loader._Log("INFO", "Attached to SAP session")
+        return loader
     }
 
     static FromSession(session, policy := "") {
         return Sm30BulkLoader(session, policy)
     }
 
+    EnableLogging(logPath := "") {
+        if (IsObject(this.logger)) {
+            this._Log("INFO", "Logging already enabled: " this.logPath)
+            return this
+        }
+        this.logger := SapFileLogger(logPath)
+        this.logPath := this.logger.logPath
+        this._Log("INFO", "Logging enabled")
+        return this
+    }
+
+    SetLogger(logger) {
+        if (IsObject(logger)) {
+            this.logger := logger
+            this.logPath := logger.logPath
+        }
+        return this
+    }
+
     OpenView(viewName) {
+        this._Log("INFO", "OpenView start viewName=" viewName)
         wnd := this.session.FindById("wnd[0]")
         wnd.Maximize()
         this.session.FindById("wnd[0]/tbar[0]/okcd").Text := "/nsm30"
@@ -39,24 +64,29 @@ class Sm30BulkLoader {
         this.session.FindById("wnd[0]/usr/ctxtVIEWNAME").Text := viewName
         wnd.SendVKey(0)
         this._WaitNotBusy()
+        this._Log("INFO", "OpenView done viewName=" viewName)
         return this
     }
 
     EnterMaintenance(updateButtonId := "wnd[0]/usr/btnUPDATE_PUSH") {
+        this._Log("INFO", "EnterMaintenance button=" updateButtonId)
         this.session.FindById(updateButtonId).Press()
         this._WaitNotBusy()
         return this
     }
 
     NewEntries(newEntriesButtonId := "wnd[0]/tbar[1]/btn[5]") {
+        this._Log("INFO", "NewEntries button=" newEntriesButtonId)
         this.session.FindById(newEntriesButtonId).Press()
         this._WaitNotBusy()
         return this
     }
 
     UseTable(tableId := "") {
+        this._Log("INFO", "UseTable tableId=" tableId)
         this.table := this._FindTableControl(tableId)
         this.tablePath := tableId != "" ? tableId : this.table.Id
+        this._LogTableState("UseTable ready")
         return this
     }
 
@@ -72,19 +102,28 @@ class Sm30BulkLoader {
         }
 
         this.columns := columns
+        this._Log("INFO", "FillRows start rows=" rows.Length " startAbsoluteRow=" startAbsoluteRow)
+        this._LogColumns(columns)
+
         absoluteRow := startAbsoluteRow
         for rowValues in rows {
+            this._Log("INFO", "Row start absoluteRow=" absoluteRow " values=" SapLogFormat.Args(rowValues))
             this._EnsurePhysicalRow(absoluteRow)
             visibleRow := this._EnsureVisibleRow(absoluteRow)
+            this._Log("INFO", "Row mapped absoluteRow=" absoluteRow " visibleRow=" visibleRow)
             this._WriteRow(visibleRow, absoluteRow, columns, rowValues)
             absoluteRow += 1
         }
+
+        this._Log("INFO", "FillRows done rows=" rows.Length)
         return rows.Length
     }
 
     Save(saveButtonId := "wnd[0]/tbar[0]/btn[11]") {
+        this._Log("INFO", "Save button=" saveButtonId)
         this.session.FindById(saveButtonId).Press()
         this._WaitNotBusy()
+        this._Log("INFO", "Save done")
         return this
     }
 
@@ -115,6 +154,7 @@ class Sm30BulkLoader {
             }
             rows.Push(rowValues)
         }
+        this._Log("INFO", "LoadCsv path=" csvPath " rows=" rows.Length)
         return rows
     }
 
@@ -122,8 +162,10 @@ class Sm30BulkLoader {
         if (tableId != "") {
             table := this.session.FindById(tableId)
             if (table.Type != "GuiTableControl") {
+                this._Log("ERROR", "Control is not GuiTableControl type=" table.Type " id=" tableId)
                 throw Error("Control is not a GuiTableControl: " tableId)
             }
+            this._Log("INFO", "Found table by id=" tableId " resolvedId=" table.Id)
             return table
         }
 
@@ -131,10 +173,12 @@ class Sm30BulkLoader {
         childCount := usr.Children.Length
         loop childCount {
             child := usr.Children[A_Index - 1]
+            this._Log("INFO", "Scan usr child type=" child.Type " id=" child.Id)
             if (child.Type = "GuiTableControl") {
                 return child
             }
         }
+        this._Log("ERROR", "No GuiTableControl found under wnd[0]/usr")
         throw Error("No GuiTableControl found under wnd[0]/usr.")
     }
 
@@ -144,6 +188,7 @@ class Sm30BulkLoader {
         visibleCount := table.VisibleRowCount
 
         while (absoluteRowIndex < scrollPos) {
+            this._Log("INFO", "Scroll up absoluteRow=" absoluteRowIndex " scrollPos=" scrollPos)
             scrollPos -= 1
             table.VerticalScrollbar.Position := scrollPos
             this._WaitNotBusy()
@@ -153,11 +198,15 @@ class Sm30BulkLoader {
         while (absoluteRowIndex >= scrollPos + visibleCount) {
             nextPos := scrollPos + 1
             if (nextPos > table.VerticalScrollbar.Maximum) {
+                this._Log("WARN", "Reached scroll max, creating row absoluteRow=" absoluteRowIndex
+                    . " scrollPos=" scrollPos " max=" table.VerticalScrollbar.Maximum)
                 this._CreateNewTableRow()
                 scrollPos := table.VerticalScrollbar.Position
                 visibleCount := table.VisibleRowCount
                 continue
             }
+            this._Log("INFO", "Scroll down absoluteRow=" absoluteRowIndex
+                . " scrollPos=" scrollPos " -> " nextPos " visibleCount=" visibleCount)
             table.VerticalScrollbar.Position := nextPos
             scrollPos := nextPos
             this._WaitNotBusy()
@@ -165,12 +214,15 @@ class Sm30BulkLoader {
             visibleCount := table.VisibleRowCount
         }
 
-        return absoluteRowIndex - scrollPos
+        visibleRow := absoluteRowIndex - scrollPos
+        this._LogTableState("EnsureVisibleRow absoluteRow=" absoluteRowIndex " visibleRow=" visibleRow)
+        return visibleRow
     }
 
     _EnsurePhysicalRow(absoluteRowIndex) {
         table := this.table
         if (absoluteRowIndex = 0 && table.RowCount <= 0) {
+            this._Log("WARN", "RowCount <= 0 for first row; writing into visible slot without create")
             return
         }
 
@@ -178,8 +230,12 @@ class Sm30BulkLoader {
         while (absoluteRowIndex >= table.RowCount) {
             guard += 1
             if (guard > 1000) {
+                this._Log("ERROR", "Row creation guard exceeded absoluteRow=" absoluteRowIndex
+                    . " rowCount=" table.RowCount)
                 throw Error("Could not create enough table rows for index " absoluteRowIndex ".")
             }
+            this._Log("INFO", "Create physical row absoluteRow=" absoluteRowIndex
+                . " rowCount=" table.RowCount)
             this._CreateNewTableRow()
         }
     }
@@ -188,19 +244,24 @@ class Sm30BulkLoader {
         table := this.table
         lastVisibleRow := table.VisibleRowCount - 1
         if (lastVisibleRow < 0) {
+            this._Log("ERROR", "CreateNewTableRow failed: no visible rows")
             throw Error("Table has no visible rows.")
         }
 
         if (this.columns.Length = 0) {
+            this._Log("ERROR", "CreateNewTableRow failed: no column definitions")
             throw Error("No column definitions available for row creation.")
         }
 
         lastColumnDef := this.columns[this.columns.Length]
+        cellPath := this._BuildCellPath(lastVisibleRow, lastColumnDef)
+        this._Log("INFO", "CreateNewTableRow focus+enter path=" cellPath)
         cell := this._ResolveCell(lastVisibleRow, lastColumnDef)
         cell.SetFocus()
         this.session.FindById("wnd[0]").SendVKey(0)
         this._WaitNotBusy()
         Sleep(this.rowCreatePauseMs)
+        this._LogTableState("CreateNewTableRow done")
     }
 
     _WriteRow(visibleRowIndex, absoluteRowIndex, columns, rowValues) {
@@ -208,16 +269,26 @@ class Sm30BulkLoader {
         loop columnCount {
             columnDef := columns[A_Index]
             value := rowValues[A_Index]
+            cellPath := columnDef.Has("field") ? this._BuildCellPath(visibleRowIndex, columnDef) : "<GetCell>"
             try {
+                this._Log("INFO", "Write cell absoluteRow=" absoluteRowIndex
+                    . " visibleRow=" visibleRowIndex
+                    . " column=" columnDef["index"]
+                    . " kind=" (columnDef.Has("kind") ? columnDef["kind"] : "Text")
+                    . " path=" cellPath
+                    . " value=" value)
                 cell := this._ResolveCell(visibleRowIndex, columnDef)
                 cell.SetFocus()
                 this._SetCellValue(cell, value, columnDef)
+                this._LogReadBack(cell, columnDef, cellPath)
             } catch {
                 this.lastFailure := "Failed writing absolute row " absoluteRowIndex
                     . ", visible row " visibleRowIndex
                     . ", column " columnDef["index"]
-                    . ", path " this._BuildCellPath(visibleRowIndex, columnDef)
+                    . ", path " cellPath
                     . ", value " value
+                    . ", LastError=" A_LastError
+                this._Log("ERROR", this.lastFailure)
                 throw Error(this.lastFailure)
             }
         }
@@ -240,6 +311,8 @@ class Sm30BulkLoader {
 
     _CommitRow(visibleRowIndex, columns) {
         lastColumnDef := columns[columns.Length]
+        cellPath := this._BuildCellPath(visibleRowIndex, lastColumnDef)
+        this._Log("INFO", "Commit row visibleRow=" visibleRowIndex " path=" cellPath)
         cell := this._ResolveCell(visibleRowIndex, lastColumnDef)
         cell.SetFocus()
         this.session.FindById("wnd[0]").SendVKey(0)
@@ -259,11 +332,80 @@ class Sm30BulkLoader {
         cell.Text := value
     }
 
+    _LogReadBack(cell, columnDef, cellPath) {
+        kind := columnDef.Has("kind") ? columnDef["kind"] : "Text"
+        readBack := "<unavailable>"
+        try {
+            if (kind = "Key") {
+                readBack := cell.Key
+            } else if (kind = "Selected") {
+                readBack := cell.Selected
+            } else {
+                readBack := cell.Text
+            }
+        } catch {
+            readBack := "<readback-failed LastError=" A_LastError ">"
+        }
+        this._Log("INFO", "Read back path=" cellPath " value=" readBack)
+    }
+
+    _LogTableState(context) {
+        table := this.table
+        scrollPos := ""
+        scrollMax := ""
+        visibleCount := ""
+        rowCount := ""
+        try {
+            scrollPos := table.VerticalScrollbar.Position
+            scrollMax := table.VerticalScrollbar.Maximum
+            visibleCount := table.VisibleRowCount
+            rowCount := table.RowCount
+        } catch {
+            scrollPos := "<err>"
+        }
+        this._Log("INFO", context
+            . " tablePath=" this.tablePath
+            . " rowCount=" rowCount
+            . " visibleCount=" visibleCount
+            . " scrollPos=" scrollPos
+            . " scrollMax=" scrollMax)
+    }
+
+    _LogColumns(columns) {
+        for columnDef in columns {
+            name := columnDef.Has("name") ? columnDef["name"] : ""
+            field := columnDef.Has("field") ? columnDef["field"] : ""
+            prefix := columnDef.Has("prefix") ? columnDef["prefix"] : ""
+            kind := columnDef.Has("kind") ? columnDef["kind"] : "Text"
+            this._Log("INFO", "Column index=" columnDef["index"]
+                . " kind=" kind
+                . " prefix=" prefix
+                . " field=" field
+                . " name=" name)
+        }
+    }
+
+    _Log(level, message) {
+        if (!IsObject(this.logger)) {
+            return
+        }
+        if (level = "ERROR") {
+            this.logger.Error(message)
+            return
+        }
+        if (level = "WARN") {
+            this.logger.Warn(message)
+            return
+        }
+        this.logger.Info(message)
+    }
+
     _WaitNotBusy() {
         guard := 0
         while (this.session.Busy) {
             guard += 1
             if (guard > 10000) {
+                this._Log("ERROR", "Timed out waiting for SAP session idle")
                 throw Error("Timed out waiting for SAP session to become idle.")
             }
             Sleep(10)

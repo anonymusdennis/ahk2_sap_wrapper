@@ -59,6 +59,8 @@ examples/sm30_dummy_fill_test.ahk2
 examples/sm30_dummy_fill_test.ahk2 120
 ```
 
+Logs are written to `logs/` (gitignored). On success or failure the dialog shows the log file path.
+
 Column definitions need the SAP field metadata from your script recorder:
 
 ```ahk
