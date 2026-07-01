@@ -1,304 +1,312 @@
-# Programming Guide for AI Assistants — AHK v2 + SAP SM30 Bulk Loader
+# Programming Guide for AI Assistants
 
-This document captures hard-won lessons from building the SM30 bulk import tooling in this repo. **Future AI agents should read this before changing AHK or SAP scripting code here.**
+This repository is a **long-lived home for AutoHotkey v2 tools that automate SAP GUI Scripting**. It is not limited to one feature. Today it contains the SAP COM wrapper library plus the SM30 bulk-import tool; **future tools should follow the same patterns documented here.**
+
+**Read this file before changing any code in the repo.**
 
 ---
 
-## Project conventions (non-negotiable)
+## Repository purpose
+
+| Layer | Location | Role |
+|-------|----------|------|
+| SAP wrapper library | `src/SapWrapper.ahk`, `src/core/`, `src/types/` | Typed, hookable COM proxy for SAP GUI Scripting |
+| Shared utilities | `src/Sm30AppPaths.ahk`, `src/Sm30JsonConfig.ahk`, `src/core/SapFileLogger.ahk`, … | Reuse across tools where applicable |
+| Runnable tools | `examples/<tool-name>/` | One folder per tool: launcher `.ahk2`, `config/`, `data/`, runtime `logs/` |
+| One-off / demo scripts | `examples/*.ahk2` | Small scripts not tied to a full tool folder |
+| Reference docs | `task.md`, `sap_gui_scripting_api_*.md` | Wrapper design and SAP API allowlists |
+
+When adding a **new tool**, prefer:
+
+```text
+examples/my-new-tool/
+  my_new_tool.ahk2          # launcher (#Requires v2.0, #Include ../../src/...)
+  config/                   # JSON, INI, or other user-editable settings
+  data/                     # sample input files
+  logs/                     # created at runtime (gitignored)
+src/
+  MyNewTool.ahk             # optional shared library class(es)
+```
+
+Keep **libraries in `src/`**, **entry points in `examples/`**.
+
+---
+
+## Hard rules (every file in this repo)
+
+These come from `task.md` and real runtime constraints (including **v2.1-alpha** builds):
 
 | Rule | Detail |
 |------|--------|
-| Runnable scripts | Use `.ahk2` extension |
-| Libraries / includes | Use `.ahk` under `src/` |
-| Header | `#Requires AutoHotkey v2.0` on every file |
-| No lambdas | Do **not** use `() => expr` or arrow functions |
-| No exception variables | Use `try { } catch { }` only — **not** `catch err`, `catch as e`, etc. |
-| Error detail | Build messages from known context + `A_LastError`; never `e.Message` |
-| Logs | Written to `logs/` (gitignored) via `SapFileLogger` |
-| Git branches | Use prefix `cursor/` and suffix `-7156` when creating branches |
+| Runnable scripts | `.ahk2` extension |
+| Libraries / includes | `.ahk` under `src/` |
+| Header | `#Requires AutoHotkey v2.0` unless there is a documented reason otherwise |
+| No lambdas | No `() => expr` or arrow functions |
+| No exception variables | `try { } catch { }` only — not `catch err`, `catch as e`, etc. |
+| Error messages | Build from context + `A_LastError`; never `e.Message` |
+| Minimal diffs | Match existing style; no drive-by refactors |
+| Tests | Add only when requested or they cover real failure modes |
+
+**Do not** require AutoHotkey v2.1 stable or `JsonLoad` — many users run **v2.0 or v2.1-alpha**. Use repo utilities (`Sm30JsonConfig`, `FileOpen`) instead.
 
 ---
 
-## AHK v2 pitfalls (counterintuitive)
+## AHK v2 pitfalls (all tools)
 
 ### 1. Class methods share local variable names
 
-**Symptom:** `Error: This local variable has not been assigned a value` on a line that clearly assigns it (e.g. `gui := Gui(...)`).
+**Symptom:** `Error: This local variable has not been assigned a value` on e.g. `gui := Gui(...)`.
 
-**Cause:** In AHK v2, local variable names are effectively shared across all methods of a class. If one method declares a parameter named `gui` (e.g. `_OnExcelResize(gui, minMax, ...)`), another method cannot use `gui` as a local variable — the runtime treats it as the same symbol, still unassigned in that method.
+**Cause:** Local names are shared across all methods of a class. A parameter `gui` in `_OnResize(gui, ...)` breaks another method that uses local `gui`.
 
-**Fix:** Never reuse generic names like `gui`, `control`, `item` across class methods. Use distinct names: `excelWin`, `runWin`, `senderGui`, etc.
+**Fix:** Use distinct names: `excelWin`, `runWin`, `senderGui`, `mainWin`, etc.
 
 ```ahk
-; BAD — _OnExcelResize(gui, ...) elsewhere breaks this
-_BuildWindow() {
-    gui := Gui()
-}
+; BAD
+_BuildWindow() { gui := Gui() }
+_OnResize(gui, minMax, width, height, *) { }
 
 ; GOOD
-_BuildWindow() {
-    excelWin := Gui()
-    this.excelGui := excelWin
-}
-_OnResize(senderGui, minMax, width, height, *) {
-}
+_BuildWindow() { excelWin := Gui(); this.excelGui := excelWin }
+_OnResize(senderGui, minMax, width, height, *) { }
 ```
 
-This was the hardest GUI bug to diagnose because the error points at the assignment line, not the other method.
+---
+
+### 2. Plain objects vs Map
+
+On some builds (including **v2.1-alpha**), `{}` or parsed data may behave as **`Map`**, not a plain **`Object`**.
+
+- **`HasOwnProp()`** works on plain objects; on **`Map`** use **`.Has(key)`** or convert first.
+- Prefer **`Object()`** and **`obj[key] := value`** for config/data loaded from JSON.
+- Use **`Sm30JsonConfig._ToPlainObject()`** (or the same pattern) before code that calls **`HasOwnProp()`** everywhere.
+
+**Do not** wrap load logic in a bare `catch { }` that replaces the real error with `LastError=0`.
 
 ---
 
-### 2. Plain objects do not have `.Has()`
+### 3. Other common mistakes
 
-Use `columnDef.HasOwnProp("field")` instead of `columnDef.Has("field")`.
-
-Avoid calling bare `HasOwnProp("x")` at global scope — it can trigger VarUnset warnings. Always call on an object: `obj.HasOwnProp("x")`.
-
----
-
-### 3. Arrays have no `.Join()`
-
-Build strings manually or use a small helper (`JoinLines()`). Do not assume JavaScript-style array methods exist.
-
----
-
-### 4. `Map` vs object access
-
-`_EnsurePageReadyForFill` returns `Map("visibleStart", x, "rowsOnPage", y)`. Access with `pagePlan["visibleStart"]`, not dot notation for dynamic keys unless using a plain object literal.
+| Mistake | Use instead |
+|---------|-------------|
+| `obj.Has("x")` on plain objects | `obj.HasOwnProp("x")` |
+| `array.Join()` | Manual join or a small helper |
+| `FileRead(path, "UTF-8")` on alpha | `FileOpen(path, "r", "UTF-8")` with fallback |
+| `#Requires AutoHotkey v2.1` + `JsonLoad` | Built-in `Sm30JsonParser` in `Sm30JsonConfig.ahk` |
+| Inline arrow callbacks | `ObjBindMethod(this, "_Handler")` |
+| Global `HasOwnProp("x")` | `obj.HasOwnProp("x")` on a specific object |
 
 ---
 
-### 5. Progress / callbacks without lambdas
+## GUI tools (any future app)
 
-Pass bound methods: `ObjBindMethod(this, "_OnImportProgress")`. Do not use inline arrow callbacks.
+### Layout and paths
 
----
+Use **`Sm30AppPaths`** (or copy the pattern into a tool-specific `AppPaths` class):
 
-## SAP GUI scripting — mental model
+- **`A_ScriptDir`** = folder of the script **or** compiled `.exe`
+- Ship **`config/`**, **`data/`**, **`logs/`** next to the launcher/exe
+- **`src/`** is compiled into the exe; runtime config is **not**
 
-### Object hierarchy for session picking
-
+```text
+MyTool.exe          (or my_tool.ahk2)
+config/
+data/
+logs/
 ```
-GuiApplication  (from ComObjGet("SAPGUI").GetScriptingEngine)
-  └── Children[i]   (= GuiConnection)
-        └── Children[j]   (= GuiSession)
-```
 
-- `Sm30BulkLoader.Attach()` always takes **first connection, first session** — wrong when multiple SAP windows are open.
-- Use `Sm30BulkLoader.FromSession(chosenSession, policy)` for UI session pickers.
-- Label sessions via `session.Info`: `SystemName`, `Client`, `User`, `Transaction`, `SessionNumber`.
+### Long-running COM work (Excel, SAP, file I/O)
+
+COM calls **block the GUI thread**. Never open Excel or SAP from a button handler without feedback.
+
+1. Show loading state immediately (disable buttons, status text).
+2. Defer work: `SetTimer(ObjBindMethod(this, "_ProcessDeferred"), -1)`.
+3. Re-enable UI in `finally` or after the deferred method completes.
+
+For Excel: one `Excel.Application` session per operation; set `ScreenUpdating := false`, `EnableEvents := false`.
+
+### Session selection
+
+Do **not** rely on `ActiveSession` for tools that must work while another window is focused.
+
+- List sessions: `Sm30SapSessions.List(policy)` (or same hierarchy walk).
+- Attach with `Sm30BulkLoader.FromSession(session, policy)` or raw `GuiSession` from the wrapper.
 
 ---
 
-### SM30 table cell paths
+## JSON configuration (any tool)
 
-Comes from the **SAP Script Recorder**, not guessed:
+Pattern used by SM30; reuse for other tools:
+
+| Piece | File |
+|-------|------|
+| Path helpers | `src/Sm30AppPaths.ahk` — generalize or duplicate per tool |
+| Parser | `src/Sm30JsonConfig.ahk` — `LoadFile`, `LoadAllFromDir` |
+| Tool catalog | e.g. `Sm30TableCatalog.ahk` loading `config/tables/*.json` |
+
+Rules:
+
+- One JSON file per entity (table, view, job type, …).
+- Validate required fields after parse; throw **specific** errors (no silent catch).
+- Property names like `"index"` and `"kind"` must use **`obj[key] := value`**, not fragile dynamic `%key%` where avoidable.
+
+Example table config: `examples/sm30/config/tables/pfepruntype.json`.
+
+---
+
+## SAP GUI wrapper (all SAP automation)
+
+### Attach chain
 
 ```ahk
-{ index: 0, kind: "Text", prefix: "ctxt", field: "WUE/PFEPRUNTYPE-VKORG" }
+#Include src/SapWrapper.ahk
+
+policy := SapHookPolicy()   ; or LoggingSapHookPolicy(logger)
+app := GuiApplication(ComObjGet("SAPGUI").GetScriptingEngine, policy)
+session := app.Children[0].Children[0]   ; first connection, first session only
 ```
 
-Built path:
+Hierarchy:
+
+```text
+GuiApplication
+  └── Children[i]  → GuiConnection
+        └── Children[j]  → GuiSession
+```
+
+Session label: `session.Info` → `SystemName`, `Client`, `User`, `Transaction`, `SessionNumber`.
+
+### Hooks and logging
+
+- Extend **`SapHookPolicy`**: `On_Call`, `After_Call`, `On_Error`.
+- File logging: **`SapFileLogger`** + **`LoggingSapHookPolicy`** in `src/core/SapFileLogger.ahk`.
+- Logs go under the tool’s **`logs/`** directory (see `Sm30BulkImportGui` for pattern).
+
+### Stale COM references
+
+After **`SendVKey`**, toolbar presses, or dialog recovery, **re-fetch** controls:
+
+```ahk
+control := session.FindById(storedRelativeId)
+```
+
+Do not keep table/cell references across SAP round trips.
+
+### Allowlists
+
+Wrapper types enforce SAP member allowlists from `src/generated/Allowlists.ahk`. Use documented SAP names (`FindById`, `SendVKey`, …). See `task.md` and `sap_gui_scripting_api_760_condensed_index.md`.
+
+---
+
+## Tool catalog (current)
+
+| Tool | Launcher | Library | Notes |
+|------|----------|---------|-------|
+| SAP attach demo | `examples/demo_rot_attach.ahk2` | `SapWrapper.ahk` | Minimal ROT attach |
+| SM30 bulk fill (script) | `examples/sm30_bulk_fill.ahk2` | `Sm30BulkLoader.ahk` | Inline rows / CSV |
+| SM30 dummy test | `examples/sm30_dummy_fill_test.ahk2` | `Sm30BulkLoader.ahk` | Stress + duplicates |
+| **SM30 import GUI** | `examples/sm30/sm30_bulk_import_gui.ahk2` | `Sm30BulkImportGui.ahk` | Excel + JSON config + GUI |
+
+When you add a row to this table, add a short section under **Tool-specific notes** below.
+
+---
+
+## Tool-specific notes: SM30 bulk loader
+
+The most complex tool today; many lessons apply to other table-based SAP automation.
+
+### Cell paths (from Script Recorder only)
+
+```ahk
+{ index: 0, kind: "Text", prefix: "ctxt", field: "VIEW-FIELDNAME" }
+```
+
+Path format:
 
 ```text
 {tablePath}/{prefix}/{field}[{columnIndex},{visibleRowIndex}]
 ```
 
-Kinds: `Text` → `.Text`, `Key` → `.Key` (dropdown), `Selected` → checkbox.
+Kinds: `Text` → `.Text`, `Key` → `.Key`, `Selected` → checkbox.
 
----
+### Scroll model
 
-### Absolute row vs visible row vs scroll
+| Term | Meaning |
+|------|---------|
+| `absoluteRow` | Logical row cursor in the loader |
+| `scrollPos` | `VerticalScrollbar.Position` (top visible absolute index) |
+| `visibleRow` | `absoluteRow - scrollPos` |
+| `VisibleRowCount` | On-screen rows (changes on window resize) |
+| `RowCount` | **Not** filled row count — includes empty preallocated rows |
 
-| Concept | Meaning |
-|---------|---------|
-| `absoluteRow` | Logical row index in the full table (what the loader tracks) |
-| `scrollPos` | `VerticalScrollbar.Position` — absolute index of the **top** visible row |
-| `visibleRow` | Row on screen: `absoluteRow - scrollPos` |
-| `VisibleRowCount` | Rows currently visible (changes if user resizes window) |
-| `RowCount` | **Not** the count of filled rows — includes **preallocated empty rows** |
+Re-read scroll metrics after scroll, Enter, skip recovery, or resize.
 
-**Scroll target for a row:** put it on screen with:
+### Error recovery (duplicate key SV009)
 
-```ahk
-scrollPos := absoluteRowIndex
-if (scrollPos > maxScroll)
-    scrollPos := maxScroll
-if (absoluteRowIndex - scrollPos >= visibleCount)
-    scrollPos := absoluteRowIndex - visibleCount + 1
-```
-
-Always re-read `VisibleRowCount` and scroll metrics after scroll, Enter, skip recovery, or window resize.
-
----
-
-### Stale COM references
-
-After `SendVKey`, skip button presses, or error recovery, **re-fetch the table**:
-
-```ahk
-this.table := this.session.FindById(this.tableFindId)
-```
-
-Do not keep using an old `GuiTableControl` reference across SAP round trips.
-
----
-
-## Error recovery (SV009 duplicate key) — what was hard
-
-### What we tried that failed
-
-1. **Status bar snapshot comparison** — After each skip press, SAP often shows the **same** SV009 text ("Es ist schon ein Eintrag mit gleichem Schlüssel vorhanden") even when the duplicate row **was** removed. Stopping when `snapshotAfter = snapshotBefore` exits after one skip and leaves ~19 duplicates.
-
-2. **Resync `absoluteRow := table.RowCount` after skips** — `RowCount` jumped to 77 (preallocated slots). Cursor landed at row 77, `_EnsurePhysicalRow` looped forever because Enter did not increase `RowCount`.
-
-### What works
+**Works:**
 
 ```text
 while status bar shows error (MessageType E or A, non-empty text):
-    press wnd[0]/tbar[1]/btn[20] (skip)
+    press skip button (default wnd[0]/tbar[1]/btn[20])
     wait until session not Busy
 until no error
 press Enter once to continue
 ```
 
-After a page commit with skips:
+After page commit with `skipped` errors:
 
 ```ahk
-dataIndex += rowsOnPage                    ; always consume input rows attempted
-absoluteRow += rowsOnPage - skipped        ; only advance by rows actually kept
+dataIndex += rowsOnPage
+absoluteRow += rowsOnPage - skipped
 ```
 
-**Never** set `absoluteRow := table.RowCount` after skips.
+**Never:**
 
----
+- Stop skipping because status bar text unchanged (SAP repeats same SV009 text).
+- Set `absoluteRow := table.RowCount` after skips.
 
-## Scroll after partial page failure — what was hard
+### Writable-cell fallback
 
-**Scenario:** Page of 39 rows, 19 duplicate skips → only 20 rows saved. Loader advanced to `absoluteRow=39` and scrolled to `scrollPos=39`. User expected ~row 20 / scroll ~20.
+If bottom of planned page is not `Changeable`: count trailing blocked rows upward, scroll up by that many, retry. Do not use `RowCount` as the next write target.
 
-**Fix:** Subtract skipped count from absolute row advancement (see above). Next fill starts at the correct logical position.
+### Throughput
 
-**Last-line defence (writable check):** Before filling, validate cells are `Changeable`. If the **bottom** rows of the planned page are not writable:
+- Default **`SetFillMode("page")`** — column-major, one Enter per page.
+- **`SetFillMode("row")`** — debug only.
+- **`ResizeWorkingPaneEx`** — default height **2000** in `OpenView()`.
 
-1. Count consecutive non-writable rows from the bottom upward.
-2. Scroll up by that many (`scrollPos -= count`).
-3. Retry (re-read `VisibleRowCount` each attempt).
-
-Do **not** fall back to `table.RowCount` as the next write target.
-
----
-
-## Row creation guard
-
-When `absoluteRow >= rowCount`, create rows by focus + Enter on last visible cell of last column.
-
-If `RowCount` does **not** increase after Enter, **fail fast** — do not loop 1000 times. That situation means the cursor is on a preallocated empty slot, not a true "create new row" boundary.
-
----
-
-## Throughput tuning
-
-- Default fill mode: **page** (column-major, one Enter per visible page).
-- Row mode: debugging only (verbose, slow).
-- `OpenView()` → `Maximize()` + `ResizeWorkingPaneEx(width, height, false)` — default height **2000** for more visible rows per page.
-- Quiet COM logging during page fills (`policy.quiet := true`).
-
----
-
-## Excel import GUI — architecture notes
-
-Two-step flow works well:
-
-1. **Load Excel** — file, worksheet (enable dropdown only if `sheetNames.Length > 1`), **SAP session dropdown + refresh**, table catalog, preview, test one row (selected session, no save).
-2. **Run** — session shown in summary (chosen on step 1), auto-save off by default, progress bar, log buttons.
-
-Excel reading requires **Microsoft Excel installed** (COM: `Excel.Application`). Regenerate sample: `python scripts/generate_sample_excel.py` → `examples/data/pfepruntype_sample.xlsx`.
-
-Add new customizing tables via JSON in `config/tables/*.json`. On v2.1-alpha, `{}` may behave like a Map — always build configs with `Object()` + `obj[key] := value`, then `_ToPlainObject()` so `HasOwnProp()` works in `Sm30BulkLoader`. Do not wrap JSON load in a bare `catch` that hides the real message.
-
----
-
-## Excel import GUI — freeze fix
-
-Opening Excel via COM (`Excel.Application`) can take several seconds and **blocks the AHK thread**. If run directly in a button handler, the GUI appears frozen with no feedback.
-
-**Fix:**
-1. Show loading state immediately (`Reading Excel...`, disable buttons).
-2. Defer COM work with `SetTimer(ObjBindMethod(this, "_ProcessExcelLoad"), -1)` so the GUI repaints first.
-3. Open Excel only once per operation (`LoadWorkbook` lists sheets and reads rows in one session).
-4. Set `excel.ScreenUpdating := false` and `excel.EnableEvents := false`.
-
----
-
-## Compiled exe layout
-
-When the launcher is compiled, **`A_ScriptDir` is the folder containing the exe**. Ship these next to the exe:
-
-```text
-MySm30Tool.exe
-config/tables/*.json
-config/app.json
-data/
-logs/            (created at runtime)
-```
-
-Libraries in `src/` are compiled into the exe. Config and data are **not** — they must sit beside the exe. Use `Sm30AppPaths.BaseDir()` / `TablesDir()` / `DataDir()` / `LogsDir()` — never hardcode `..\..\src` for runtime data.
-
-Launcher path: `examples/sm30/sm30_bulk_import_gui.ahk2`
-
----
-
-## Counterintuitive SAP behaviors (checklist)
-
-| Behavior | Intuition | Reality |
-|----------|-----------|---------|
-| Skip worked? | Status bar text changes | Same SV009 text can repeat for the next duplicate |
-| Next row after skips? | Use `RowCount` | `RowCount` includes empty preallocated rows |
-| Row saved count | `rowsOnPage` advanced | Must subtract `skipped` from absolute cursor |
-| Table reference | Keep object from start | Refresh via `FindById` after every commit/recovery |
-| Visible rows | Fixed | User resize changes `VisibleRowCount` — re-read often |
-| Test vs bulk session | Same picker | Test can use `ActiveSession`; bulk needs explicit picker |
-
----
-
-## Key files
+### Key SM30 files
 
 | File | Purpose |
 |------|---------|
-| `src/Sm30BulkLoader.ahk` | Core bulk fill, scroll, error recovery |
-| `src/Sm30BulkImportGui.ahk` | Two-step import UI |
-| `src/Sm30TableCatalog.ahk` | View/table/column definitions |
+| `src/Sm30BulkLoader.ahk` | Bulk fill, scroll, recovery |
+| `src/Sm30BulkImportGui.ahk` | Import GUI |
+| `src/Sm30TableCatalog.ahk` | Loads `config/tables/*.json` |
 | `src/Sm30ExcelImport.ahk` | Excel COM reader |
-| `src/Sm30SapSessions.ahk` | List SAP sessions |
-| `src/core/SapFileLogger.ahk` | File logging + `LoggingSapHookPolicy` |
-| `examples/sm30/sm30_bulk_import_gui.ahk2` | Launch GUI |
-| `examples/sm30/config/tables/*.json` | SM30 table definitions |
-| `src/Sm30AppPaths.ahk` | Resolves paths from `A_ScriptDir` (script or compiled exe) |
-| `src/Sm30JsonConfig.ahk` | Built-in JSON parser for table configs (no JsonLoad / v2.1 needed) |
-| `examples/sm30_dummy_fill_test.ahk2` | Stress test with intentional duplicates |
+| `src/Sm30SapSessions.ahk` | Session list |
+| `examples/sm30/config/tables/*.json` | Table definitions |
 
 ---
 
-## What to do before proposing "fixes"
+## Checklist before proposing changes
 
-1. Read the latest log in `logs/` — status bar text, `scrollPos`, `absoluteRow`, `RowCount`, `visibleCount` together tell the story.
-2. Distinguish **input row index** (`dataIndex`) from **SAP absolute row cursor** — they diverge after skips.
-3. Do not add stall detection based on status bar text equality.
-4. Do not use `table.RowCount` as write cursor after error recovery.
-5. Avoid variable names in classes that might collide across methods (`gui`, `item`, `control`, `data`).
-6. Match existing code style: minimal diff, no over-abstraction, no unnecessary tests unless requested.
+1. **Which tool?** Identify launcher under `examples/` and libraries in `src/`.
+2. **Read logs** in the tool’s `logs/` folder — include SAP status bar, scroll, row counts when debugging table fill.
+3. **Preserve repo rules** — no lambdas, no `catch err`, v2.0-compatible APIs.
+4. **Paths** — use `A_ScriptDir` / `Sm30AppPaths` pattern; config beside exe when compiled.
+5. **GUI** — defer blocking COM; unique local variable names in classes.
+6. **JSON** — `Object()` + bracket assign + plain-object conversion; clear error messages.
+7. **SAP** — refresh COM refs; don’t trust `RowCount` as “next empty row”.
+8. **Scope** — smallest correct fix; update this guide if you discover a new cross-tool pitfall.
 
 ---
 
-## Session summary (chronological)
+## Document maintenance
 
-1. Built SM30 bulk loader with page mode, scroll sync, CSV load.
-2. Fixed `.Has()` → `HasOwnProp`, stale table refs, missing `Join`.
-3. Error recovery: infinite skip loop → then stopped after 1 skip (snapshot logic) → final fix: loop until no error, no snapshot.
-4. Infinite row creation at row 77 → caused by wrong `absoluteRow` after skips + `RowCount` resync.
-5. Scroll landed at 39 instead of 20 → fixed with `absoluteRow += rowsOnPage - skipped`.
-6. Added trailing non-writable scroll-up fallback and working pane height 2000.
-7. Built Excel import GUI + sample xlsx; fixed AHK class `gui` variable name collision.
+When a fix or pattern applies **beyond one tool**, add it under:
 
-**Hardest problems:** (1) SAP keeping identical error text after successful skip, (2) `RowCount` semantics vs actual filled rows, (3) AHK v2 class-wide local variable sharing for `gui`.
+- **Hard rules**, **AHK v2 pitfalls**, **GUI tools**, **JSON configuration**, or **SAP GUI wrapper**
+
+When a fix applies **only to one tool**, add it under **Tool-specific notes** and one line in the **Tool catalog** table.
+
+Remove or shorten **session-specific chronologies** over time; keep durable rules, not narrative history.
