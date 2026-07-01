@@ -1,7 +1,7 @@
 #Requires AutoHotkey v2.0
 #Include ../src/Sm30BulkLoader.ahk
 
-; Generates dummy PFEPRUNTYPE rows (default 60) and fills them via SM30.
+; Generates dummy PFEPRUNTYPE rows (default 400) and fills them via SM30.
 ; Run with SAP GUI open, scripting enabled, and a logged-in session.
 ;
 ; Optional CLI: sm30_dummy_fill_test.ahk2 120
