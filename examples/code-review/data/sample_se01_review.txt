@@ -1,0 +1,63 @@
+If Not IsObject(application) Then
+   Set SapGuiAuto  = GetObject("SAPGUI")
+   Set application = SapGuiAuto.GetScriptingEngine
+End If
+If Not IsObject(connection) Then
+   Set connection = application.Children(0)
+End If
+If Not IsObject(session) Then
+   Set session    = connection.Children(0)
+End If
+If IsObject(WScript) Then
+   WScript.ConnectObject session,     "on"
+   WScript.ConnectObject application, "on"
+End If
+session.findById("wnd[0]").maximize
+session.findById("wnd[0]/tbar[0]/okcd").text = "/nse01"
+session.findById("wnd[0]").sendVKey 0
+session.findById("wnd[0]/usr/tabsMAINTABSTRIP/tabpTSSN/ssubCOMMONSUBSCREEN:RDDM0001:0210/ctxtTRDYSE01SN-TR_TRKORR").text = "W4DK930869"
+session.findById("wnd[0]/usr/tabsMAINTABSTRIP/tabpTSSN/ssubCOMMONSUBSCREEN:RDDM0001:0210/ctxtTRDYSE01SN-TR_TRKORR").caretPosition = 10
+session.findById("wnd[0]").sendVKey 0
+session.findById("wnd[0]/usr/lbl[21,11]").setFocus
+session.findById("wnd[0]/usr/lbl[21,11]").caretPosition = 0
+session.findById("wnd[0]").sendVKey 2
+session.findById("wnd[0]/usr/lbl[25,13]").setFocus
+session.findById("wnd[0]/usr/lbl[25,13]").caretPosition = 0
+session.findById("wnd[0]").sendVKey 2
+session.findById("wnd[0]/usr/lbl[20,9]").setFocus
+session.findById("wnd[0]/usr/lbl[20,9]").caretPosition = 4
+session.findById("wnd[0]/tbar[1]/btn[41]").press
+session.findById("wnd[0]/shellcont/shell").expandNode "          5"
+session.findById("wnd[0]/shellcont/shell").topNode = "          1"
+session.findById("wnd[0]/shellcont/shell").expandNode "          6"
+session.findById("wnd[0]/shellcont/shell").topNode = "          1"
+session.findById("wnd[0]/shellcont/shell").selectedNode = "          7"
+session.findById("wnd[0]/shellcont/shell").doubleClickNode "          7"
+session.findById("wnd[0]/mbar/menu[3]/menu[12]/menu[0]").select
+session.findById("wnd[0]/usr/cntlCONT/shellcont/shell/shellcont[0]/shell").currentCellColumn = "USR"
+session.findById("wnd[0]/usr/cntlCONT/shellcont/shell/shellcont[0]/shell").clickCurrentCell
+session.findById("wnd[1]/tbar[0]/btn[12]").press
+session.findById("wnd[0]/usr/cntlCONT/shellcont/shell/shellcont[0]/shell").currentCellColumn = "COMPARE"
+session.findById("wnd[0]/usr/cntlCONT/shellcont/shell/shellcont[0]/shell").clickCurrentCell
+session.findById("wnd[0]/tbar[1]/btn[8]").press
+session.findById("wnd[0]/tbar[1]/btn[7]").press
+session.findById("wnd[0]/tbar[1]/btn[8]").press
+session.findById("wnd[0]/tbar[1]/btn[7]").press
+session.findById("wnd[0]/tbar[1]/btn[8]").press
+session.findById("wnd[0]/tbar[1]/btn[7]").press
+session.findById("wnd[0]/tbar[1]/btn[8]").press
+session.findById("wnd[0]/tbar[1]/btn[7]").press
+session.findById("wnd[0]/tbar[1]/btn[8]").press
+session.findById("wnd[0]/tbar[1]/btn[7]").press
+session.findById("wnd[0]/tbar[1]/btn[8]").press
+session.findById("wnd[0]/tbar[1]/btn[7]").press
+session.findById("wnd[0]/tbar[1]/btn[8]").press
+session.findById("wnd[0]/tbar[1]/btn[7]").press
+session.findById("wnd[0]/tbar[1]/btn[8]").press
+session.findById("wnd[1]/tbar[0]/btn[0]").press
+session.findById("wnd[0]/tbar[0]/btn[3]").press
+session.findById("wnd[0]/tbar[0]/btn[3]").press
+session.findById("wnd[0]/tbar[0]/btn[3]").press
+session.findById("wnd[0]/tbar[0]/btn[3]").press
+session.findById("wnd[0]/usr/lbl[24,11]").setFocus
+session.findById("wnd[0]/usr/lbl[24,11]").caretPosition = 6
