@@ -17,8 +17,4 @@ class CodeReviewAppPaths {
     static LogsDir() {
         return CodeReviewAppPaths.BaseDir() "\logs"
     }
-
-    static DefaultReviewConfigPath() {
-        return CodeReviewAppPaths.ConfigDir() "\se01_review.json"
-    }
 }

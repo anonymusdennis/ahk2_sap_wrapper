@@ -1,8 +1,6 @@
 #Requires AutoHotkey v2.0
 
-#Include CodeReviewConfig.ahk
-#Include CodeReviewAppPaths.ahk
-#Include CodeReviewActions.ahk
+#Include CodeReviewScript.ahk
 #Include CodeReviewScriptParser.ahk
 #Include SapWrapper.ahk
 #Include Sm30SapSessions.ahk
@@ -16,10 +14,9 @@ class CodeReviewRunner {
     static STATE_STEP3_COMPARE_WAIT := "step3_compare_wait"
     static STATE_STEP4_COMPARE := "step4_compare"
 
-    __New(session := "", reviewDef := "", policy := "") {
+    __New(session := "", policy := "") {
         this.session := session
         this.policy := IsObject(policy) ? policy : SapHookPolicy()
-        this.reviewDef := IsObject(reviewDef) ? reviewDef : CodeReviewConfig.LoadDefault()
         this.transports := []
         this.transportIndex := 1
         this.state := CodeReviewRunner.STATE_IDLE
@@ -31,16 +28,11 @@ class CodeReviewRunner {
         this.session := session
     }
 
-    SetReviewDef(reviewDef) {
-        this.reviewDef := reviewDef
-    }
-
     LoadTransportsFromText(text) {
         parsed := CodeReviewScriptParser.ParseText(text)
-        ids := parsed.transports
         cleaned := []
-        for item in ids {
-            if (item != "" && item != "(unknown)") {
+        for item in parsed.transports {
+            if (item != "") {
                 cleaned.Push(item)
             }
         }
@@ -92,20 +84,19 @@ class CodeReviewRunner {
             transportIndex: this.transportIndex,
             transportCount: this.transports.Length,
             transportId: this.GetCurrentTransport(),
-            checkpointHint: CodeReviewRunner._CheckpointHint(this),
-            actionHint: CodeReviewRunner._ActionHint(this),
-            continueHint: CodeReviewRunner._ContinueHint(this),
+            checkpointHint: CodeReviewRunner._CheckpointHint(this.state),
+            actionHint: CodeReviewRunner._ActionHint(this.state),
+            continueHint: CodeReviewRunner._ContinueHint(this.state),
             usedDefaultTreePath: this.usedDefaultTreePath,
             lastMessage: this.lastMessage,
-            reviewLabel: this.reviewDef.label
+            reviewLabel: CodeReviewScript.LABEL
         }
     }
 
     GoCheckpoint0() {
         this._EnsureSession()
         this._EnsureTransport()
-        vars := CodeReviewActions.BuildVars(this.reviewDef, this.GetCurrentTransport())
-        CodeReviewActions.RunBlock(this.session, this.reviewDef.checkpoint0, vars)
+        CodeReviewScript.RunCheckpoint0(this.session, this.GetCurrentTransport())
         this.state := CodeReviewRunner.STATE_AT_CHECKPOINT_0
         this.usedDefaultTreePath := false
         this.lastMessage := "Checkpoint 0 — transport opened."
@@ -115,10 +106,9 @@ class CodeReviewRunner {
     GoCheckpoint1() {
         this._EnsureSession()
         this._EnsureTransport()
-        vars := CodeReviewActions.BuildVars(this.reviewDef, this.GetCurrentTransport())
-        CodeReviewActions.RunBlock(this.session, this.reviewDef.checkpoint0, vars)
-        CodeReviewActions.RunBlock(this.session, this.reviewDef.step1, vars)
-        CodeReviewActions.RunBlock(this.session, this.reviewDef.step2, vars)
+        CodeReviewScript.RunCheckpoint0(this.session, this.GetCurrentTransport())
+        CodeReviewScript.RunStep1(this.session)
+        CodeReviewScript.RunStep2ExpandTree(this.session)
         this.state := CodeReviewRunner.STATE_AT_CHECKPOINT_1_WAIT
         this.usedDefaultTreePath := false
         this.lastMessage := "Checkpoint 1 — tree expanded. Numpad 5 = default coding, Numpad + = continue manually."
@@ -161,8 +151,7 @@ class CodeReviewRunner {
 
     BeginComparisonFlow() {
         this._EnsureSession()
-        vars := CodeReviewActions.BuildVars(this.reviewDef, this.GetCurrentTransport())
-        CodeReviewActions.RunBlock(this.session, this.reviewDef.step3.menu, vars)
+        CodeReviewScript.RunStep3Menu(this.session)
         this.state := CodeReviewRunner.STATE_STEP3_MENU_WAIT
         this.lastMessage := "Comparison menu opened. Press Numpad + to view user changes."
         return this.GetState()
@@ -170,8 +159,7 @@ class CodeReviewRunner {
 
     _RunDefaultTreePath() {
         this._EnsureSession()
-        vars := CodeReviewActions.BuildVars(this.reviewDef, this.GetCurrentTransport())
-        CodeReviewActions.RunBlock(this.session, this.reviewDef.step2.defaultPath, vars)
+        CodeReviewScript.RunDefaultTreePath(this.session)
         this.usedDefaultTreePath := true
         this.lastMessage := "Default coding opened."
         return this.BeginComparisonFlow()
@@ -185,8 +173,7 @@ class CodeReviewRunner {
 
     _RunViewUser() {
         this._EnsureSession()
-        vars := CodeReviewActions.BuildVars(this.reviewDef, this.GetCurrentTransport())
-        CodeReviewActions.RunBlock(this.session, this.reviewDef.step3.viewUser, vars)
+        CodeReviewScript.RunStep3ViewUser(this.session)
         this.state := CodeReviewRunner.STATE_STEP3_COMPARE_WAIT
         this.lastMessage := "User column opened. Numpad + = open compare, Numpad 5 = you opened it manually."
         return this.GetState()
@@ -194,8 +181,7 @@ class CodeReviewRunner {
 
     _RunOpenCompare() {
         this._EnsureSession()
-        vars := CodeReviewActions.BuildVars(this.reviewDef, this.GetCurrentTransport())
-        CodeReviewActions.RunBlock(this.session, this.reviewDef.step3.openCompare, vars)
+        CodeReviewScript.RunStep3OpenCompare(this.session)
         this.state := CodeReviewRunner.STATE_STEP4_COMPARE
         this.lastMessage := "Compare screen open. Numpad 5 = next diff. Numpad + = finish and next transport."
         return this.GetState()
@@ -209,18 +195,14 @@ class CodeReviewRunner {
 
     _ScrollDiff() {
         this._EnsureSession()
-        vars := CodeReviewActions.BuildVars(this.reviewDef, this.GetCurrentTransport())
-        CodeReviewActions.RunBlock(this.session, this.reviewDef.step4.diffScroll, vars)
+        CodeReviewScript.RunStep4DiffScroll(this.session)
         this.lastMessage := "Scrolled to next difference pair."
         return this.GetState()
     }
 
     _FinishAndNextTransport() {
         this._EnsureSession()
-        vars := CodeReviewActions.BuildVars(this.reviewDef, this.GetCurrentTransport())
-        if (Sm30JsonConfig._HasProp(this.reviewDef.step4, "finish")) {
-            CodeReviewActions.RunBlock(this.session, this.reviewDef.step4.finish, vars)
-        }
+        CodeReviewScript.RunStep4Finish(this.session)
         hadNext := this.transportIndex < this.transports.Length
         if (hadNext) {
             this.transportIndex += 1
@@ -242,7 +224,7 @@ class CodeReviewRunner {
 
     _EnsureTransport() {
         if (this.GetCurrentTransport() = "") {
-            throw Error("No transport selected. Paste transport IDs and parse first.")
+            throw Error("No transport selected. Paste transport IDs and load first.")
         }
     }
 
@@ -280,34 +262,31 @@ class CodeReviewRunner {
         }
     }
 
-    static _CheckpointHint(runner) {
-        cp := runner.reviewDef.checkpoints
-        if (runner.state = CodeReviewRunner.STATE_AT_CHECKPOINT_0 && Sm30JsonConfig._HasProp(cp, "0")) {
-            hintObj := cp.%"0"%
-            return hintObj.hint
+    static _CheckpointHint(state) {
+        if (state = CodeReviewRunner.STATE_AT_CHECKPOINT_0) {
+            return CodeReviewScript.CHECKPOINT_0_HINT
         }
-        if (runner.state = CodeReviewRunner.STATE_AT_CHECKPOINT_1_WAIT && Sm30JsonConfig._HasProp(cp, "1")) {
-            hintObj := cp.%"1"%
-            return hintObj.hint
+        if (state = CodeReviewRunner.STATE_AT_CHECKPOINT_1_WAIT) {
+            return CodeReviewScript.CHECKPOINT_1_HINT
         }
         return ""
     }
 
-    static _ActionHint(runner) {
-        if (runner.state = CodeReviewRunner.STATE_AT_CHECKPOINT_1_WAIT) {
+    static _ActionHint(state) {
+        if (state = CodeReviewRunner.STATE_AT_CHECKPOINT_1_WAIT) {
             return "Numpad 5 — open first listed coding (default path)"
         }
-        if (runner.state = CodeReviewRunner.STATE_STEP3_COMPARE_WAIT) {
+        if (state = CodeReviewRunner.STATE_STEP3_COMPARE_WAIT) {
             return "Numpad 5 — you opened compare manually"
         }
-        if (runner.state = CodeReviewRunner.STATE_STEP4_COMPARE) {
+        if (state = CodeReviewRunner.STATE_STEP4_COMPARE) {
             return "Numpad 5 — next difference (btn 8 + btn 7)"
         }
         return "Numpad 5 — no action here"
     }
 
-    static _ContinueHint(runner) {
-        switch runner.state {
+    static _ContinueHint(state) {
+        switch state {
             case CodeReviewRunner.STATE_IDLE:
                 return "Numpad 0 — open transport / checkpoint 0"
             case CodeReviewRunner.STATE_AT_CHECKPOINT_0:

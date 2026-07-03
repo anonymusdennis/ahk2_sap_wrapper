@@ -7,7 +7,7 @@
 class CodeReviewPlayerGui {
     __New() {
         this.policy := SapHookPolicy()
-        this.runner := CodeReviewRunner("", "", this.policy)
+        this.runner := CodeReviewRunner("", this.policy)
         this.sessionEntries := []
         this.hotkeysActive := false
         this._BuildWindow()
@@ -15,7 +15,7 @@ class CodeReviewPlayerGui {
 
     Show() {
         this._RefreshSessions()
-        this._LoadDefaultConfig()
+        this.statusText.Value := "Ready — flow is hard-coded in src/CodeReviewScript.ahk"
         this.mainWin.Show()
     }
 
@@ -24,7 +24,7 @@ class CodeReviewPlayerGui {
         mainWin.SetFont("s10", "Segoe UI")
         mainWin.OnEvent("Close", ObjBindMethod(this, "_OnClose"))
 
-        mainWin.Add("Text", "w780", "Hard-coded SE01 review flow from config/se01_review.json")
+        mainWin.Add("Text", "w780", "SE01 transport code review — SAP steps hard-coded in src/CodeReviewScript.ahk")
         mainWin.Add("Text", "w780 cGray", "Numpad 0 = checkpoint 0   |   Numpad 1 = checkpoint 1   |   Numpad 5 = action   |   Numpad + = continue")
 
         mainWin.Add("GroupBox", "xm w800 h100 Section", "SAP session")
@@ -70,16 +70,6 @@ class CodeReviewPlayerGui {
         this.startBtn.OnEvent("Click", ObjBindMethod(this, "_StartHotkeys"))
 
         this.mainWin := mainWin
-    }
-
-    _LoadDefaultConfig() {
-        try {
-            reviewDef := CodeReviewConfig.LoadDefault()
-            this.runner.SetReviewDef(reviewDef)
-            this.statusText.Value := "Loaded review config: " reviewDef.label
-        } catch {
-            this.statusText.Value := "Could not load " CodeReviewAppPaths.DefaultReviewConfigPath()
-        }
     }
 
     _RefreshSessions(*) {
