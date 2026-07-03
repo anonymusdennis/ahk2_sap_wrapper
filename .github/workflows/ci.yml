@@ -10,6 +10,7 @@ permissions:
 jobs:
   test:
     runs-on: windows-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -46,10 +47,22 @@ jobs:
             'tests\run_tests.ahk2'
           )
           $entries += Get-ChildItem examples -Recurse -Filter *.ahk2 | ForEach-Object { $_.FullName }
+          $ahk = (Get-Command AutoHotkey64.exe).Source
           $failed = $false
           foreach ($f in $entries) {
-            & AutoHotkey64.exe /ErrorStdOut /validate $f 2>&1 | Write-Output
-            if ($LASTEXITCODE -ne 0) {
+            # AutoHotkey64.exe is a GUI-subsystem app; piping its output in
+            # PowerShell can deadlock on CI runners. Use Start-Process with
+            # file redirection and an explicit timeout instead.
+            $out = Join-Path $env:RUNNER_TEMP 'ahk_validate.log'
+            $p = Start-Process -FilePath $ahk -ArgumentList '/ErrorStdOut', '/validate', "`"$f`"" -RedirectStandardOutput $out -NoNewWindow -PassThru
+            if (-not $p.WaitForExit(60000)) {
+              $p.Kill()
+              Write-Host "TIMEOUT: $f"
+              $failed = $true
+              continue
+            }
+            Get-Content $out | Write-Output
+            if ($p.ExitCode -ne 0) {
               Write-Host "SYNTAX FAIL: $f"
               $failed = $true
             } else {
@@ -61,5 +74,13 @@ jobs:
       - name: Run headless tests
         shell: pwsh
         run: |
-          & AutoHotkey64.exe /ErrorStdOut tests\run_tests.ahk2 2>&1 | Write-Output
-          exit $LASTEXITCODE
+          $ahk = (Get-Command AutoHotkey64.exe).Source
+          $out = Join-Path $env:RUNNER_TEMP 'ahk_tests.log'
+          $p = Start-Process -FilePath $ahk -ArgumentList '/ErrorStdOut', 'tests\run_tests.ahk2' -RedirectStandardOutput $out -NoNewWindow -PassThru
+          if (-not $p.WaitForExit(300000)) {
+            $p.Kill()
+            Write-Host 'TIMEOUT: tests\run_tests.ahk2'
+            exit 1
+          }
+          Get-Content $out | Write-Output
+          exit $p.ExitCode
