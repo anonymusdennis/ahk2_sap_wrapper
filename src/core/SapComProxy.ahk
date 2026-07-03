@@ -10,6 +10,9 @@ class SapComProxy {
         this.DefineProp("_policy", {Value: IsObject(policy) ? policy : SapHookPolicy()})
         this.DefineProp("_strict", {Value: strict})
         this.DefineProp("_allow", {Value: SapTypeRegistry.GetAllowlist(typeName)})
+        this.DefineProp("_staleRecovery", {Value: false})
+        this.DefineProp("_findParentCom", {Value: ""})
+        this.DefineProp("_findId", {Value: ""})
     }
 
     __Get(name, params) {
@@ -46,6 +49,15 @@ class SapComProxy {
         return this._com
     }
 
+    ; Opt-in: when a COM operation fails once, try to re-resolve this
+    ; object's raw COM reference via its FindById origin and retry the
+    ; operation a single time. Helps after server round trips invalidate
+    ; references below window level.
+    SetStaleRecovery(enabled := true) {
+        this.DefineProp("_staleRecovery", {Value: enabled})
+        return this
+    }
+
     InvokeGet(member) {
         this._EnsureMemberAllowed(member)
         args := []
@@ -54,8 +66,15 @@ class SapComProxy {
         try {
             result := this._com.%member%
         } catch {
-            this._HandleError("get", member, args)
-            throw Error(this._BuildError("get", member))
+            if (this._TryStaleRetry("get", member)) {
+                try {
+                    result := this._com.%member%
+                } catch {
+                    this._RaiseComError("get", member, args)
+                }
+            } else {
+                this._RaiseComError("get", member, args)
+            }
         }
 
         wrapped := this._WrapResult(member, "get", result, args)
@@ -71,8 +90,15 @@ class SapComProxy {
         try {
             this._com.%member% := value
         } catch {
-            this._HandleError("set", member, args)
-            throw Error(this._BuildError("set", member))
+            if (this._TryStaleRetry("set", member)) {
+                try {
+                    this._com.%member% := value
+                } catch {
+                    this._RaiseComError("set", member, args)
+                }
+            } else {
+                this._RaiseComError("set", member, args)
+            }
         }
 
         this._CallPolicy("After_Call", "set", member, value)
@@ -86,8 +112,15 @@ class SapComProxy {
         try {
             result := this._com.%member%(args*)
         } catch {
-            this._HandleError("call", member, args)
-            throw Error(this._BuildError("call", member))
+            if (this._TryStaleRetry("call", member)) {
+                try {
+                    result := this._com.%member%(args*)
+                } catch {
+                    this._RaiseComError("call", member, args)
+                }
+            } else {
+                this._RaiseComError("call", member, args)
+            }
         }
 
         wrapped := this._WrapResult(member, "call", result, args)
@@ -102,23 +135,48 @@ class SapComProxy {
 
         typeName := SapTypeRegistry.DetectTypeName(value)
         childPath := this._BuildPath(member, op, args)
-        if (!IsObject(SapComProxy._typeClassMap)) {
-            SapComProxy._typeClassMap := Map(
-                "GuiCollection", GuiCollection,
-                "GuiComponentCollection", GuiComponentCollection,
-                "GuiApplication", GuiApplication,
-                "GuiConnection", GuiConnection,
-                "GuiSession", GuiSession,
-                "GuiFrameWindow", GuiFrameWindow,
-                "GuiVComponent", GuiVComponent
-            )
-        }
-        if (SapComProxy._typeClassMap.Has(typeName)) {
-            proxyClass := SapComProxy._typeClassMap[typeName]
-            return proxyClass(value, this._policy, this._strict, childPath)
+        typeClassMap := SapComProxy._GetTypeClassMap()
+        if (typeClassMap.Has(typeName)) {
+            proxyClass := typeClassMap[typeName]
+            child := proxyClass(value, this._policy, this._strict, childPath)
+        } else {
+            child := SapComProxy(value, typeName, childPath, this._policy, this._strict)
         }
 
-        return SapComProxy(value, typeName, childPath, this._policy, this._strict)
+        if (this._staleRecovery) {
+            child.DefineProp("_staleRecovery", {Value: true})
+        }
+        if (op = "call" && member = "FindById" && args.Length >= 1) {
+            child.DefineProp("_findParentCom", {Value: this._com})
+            child.DefineProp("_findId", {Value: args[1]})
+        }
+        return child
+    }
+
+    static _GetTypeClassMap() {
+        if (IsObject(SapComProxy._typeClassMap)) {
+            return SapComProxy._typeClassMap
+        }
+        typeClassMap := Map(
+            "GuiCollection", GuiCollection,
+            "GuiComponentCollection", GuiComponentCollection,
+            "GuiApplication", GuiApplication,
+            "GuiConnection", GuiConnection,
+            "GuiSession", GuiSession,
+            "GuiFrameWindow", GuiFrameWindow,
+            "GuiVComponent", GuiVComponent
+        )
+        ; Merge generated typed wrappers when SapWrapper2.ahk is included.
+        try {
+            for typeName, proxyClass in SapGeneratedTypedWrappers.GetTypeClassMap() {
+                if (!typeClassMap.Has(typeName)) {
+                    typeClassMap[typeName] := proxyClass
+                }
+            }
+        } catch {
+        }
+        SapComProxy._typeClassMap := typeClassMap
+        return typeClassMap
     }
 
     _BuildPath(member, op, args) {
@@ -163,12 +221,86 @@ class SapComProxy {
         throw Error("Member not allowlisted: " this._typeName "." member)
     }
 
-    _BuildError(op, member) {
-        return "SAP COM " op " failed: " this._typeName "." member " @ " this._path
-            . " (LastError=" A_LastError ", may be unrelated for COM)"
+    _TryStaleRetry(op, member) {
+        if (!this._staleRecovery) {
+            return false
+        }
+        if (!IsObject(this._findParentCom) || this._findId = "") {
+            return false
+        }
+        refreshed := ""
+        try {
+            refreshed := this._findParentCom.FindById(this._findId)
+        } catch {
+            return false
+        }
+        if (!this._IsComObject(refreshed)) {
+            return false
+        }
+        this.DefineProp("_com", {Value: refreshed})
+        this._NotifyRetry(op, member)
+        return true
     }
 
-    _HandleError(op, member, args) {
+    _NotifyRetry(op, member) {
+        try {
+            if (HasMethod(this._policy, "On_Retry")) {
+                this._policy.On_Retry(op, this._typeName, member, this._path, 1)
+            }
+        } catch {
+        }
+    }
+
+    _ClassifyError(op, member, args) {
+        ; When FindById fails, probe with raiseOnFailure=false to
+        ; distinguish "control not found" from other COM failures.
+        if (op = "call" && member = "FindById" && args.Length >= 1) {
+            probe := ""
+            try {
+                probe := this._com.FindById(args[1], false)
+            } catch {
+                return "com-error"
+            }
+            if (!this._IsComObject(probe)) {
+                return "not-found"
+            }
+            return "transient"
+        }
+        return "com-error"
+    }
+
+    _BuildError(op, member, reason := "") {
+        text := "SAP COM " op " failed: " this._typeName "." member " @ " this._path
+        if (reason = "not-found") {
+            text .= " (control not found)"
+        } else if (reason = "transient") {
+            text .= " (control exists; call failed, possibly transient)"
+        }
+        return text " (LastError=" A_LastError ", may be unrelated for COM)"
+    }
+
+    _RaiseComError(op, member, args) {
+        reason := this._ClassifyError(op, member, args)
+        this._HandleError(op, member, args, reason)
+        throw Error(this._BuildError(op, member, reason))
+    }
+
+    _HandleError(op, member, args, reason := "") {
+        ; Optional structured hook (SapHookPolicy2 or any duck-typed policy).
+        try {
+            if (HasMethod(this._policy, "On_ErrorEx")) {
+                info := Map(
+                    "op", op,
+                    "typeName", this._typeName,
+                    "member", member,
+                    "path", this._path,
+                    "args", args,
+                    "reason", reason
+                )
+                this._policy.On_ErrorEx(info)
+            }
+        } catch {
+        }
         this._CallPolicy("On_Error", op, member, args)
     }
 
