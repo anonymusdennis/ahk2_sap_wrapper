@@ -118,8 +118,8 @@ class Sm30JsonConfig {
     }
 
     static _SetProperty(obj, key, value) {
-        if (!RegExMatch(key, "^[A-Za-z_]\w*$")) {
-            throw Error("Unsupported JSON property name (must be a valid identifier): " key)
+        if (key = "") {
+            throw Error("Unsupported empty JSON property name.")
         }
         obj.%key% := value
     }
@@ -213,7 +213,7 @@ class Sm30JsonParser {
                 this._Fail("Expected ':' in JSON object at position " this.pos)
             }
             this.pos += 1
-            obj[key] := this._ReadValue()
+            Sm30JsonConfig._SetProperty(obj, key, this._ReadValue())
             this._SkipWhitespace()
             ch := SubStr(this.text, this.pos, 1)
             if (ch = "}") {
