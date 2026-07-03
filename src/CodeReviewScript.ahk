@@ -63,13 +63,7 @@ class CodeReviewScript {
         session.FindById("wnd[0]/tbar[1]/btn[7]").Press()
     }
 
-    static RunStep4Finish(session) {
-        session.FindById("wnd[1]/tbar[0]/btn[0]").Press()
-        session.FindById("wnd[0]/tbar[0]/btn[3]").Press()
-        session.FindById("wnd[0]/tbar[0]/btn[3]").Press()
-        session.FindById("wnd[0]/tbar[0]/btn[3]").Press()
-        session.FindById("wnd[0]/tbar[0]/btn[3]").Press()
-        session.FindById("wnd[0]/usr/lbl[24,11]").SetFocus()
-        session.FindById("wnd[0]/usr/lbl[24,11]").CaretPosition := 6
+    static RunPressF3(session) {
+        session.FindById("wnd[0]").SendVKey(3)
     }
 }

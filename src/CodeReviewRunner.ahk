@@ -13,6 +13,8 @@ class CodeReviewRunner {
     static STATE_STEP3_MENU_WAIT := "step3_menu_wait"
     static STATE_STEP3_COMPARE_WAIT := "step3_compare_wait"
     static STATE_STEP4_COMPARE := "step4_compare"
+    static STATE_EXIT_AFTER_F3 := "exit_after_f3"
+    static STATE_EXIT_REOPENED := "exit_reopened"
 
     __New(session := "", policy := "") {
         this.session := session
@@ -143,7 +145,13 @@ class CodeReviewRunner {
             return this._RunOpenCompare()
         }
         if (this.state = CodeReviewRunner.STATE_STEP4_COMPARE) {
-            return this._FinishAndNextTransport()
+            return this._PressF3AfterCompare()
+        }
+        if (this.state = CodeReviewRunner.STATE_EXIT_AFTER_F3) {
+            return this._ReopenCurrentTransport()
+        }
+        if (this.state = CodeReviewRunner.STATE_EXIT_REOPENED) {
+            return this._AdvanceToNextTransport()
         }
         this.lastMessage := "Numpad + has no action in state " this.state "."
         return this.GetState()
@@ -183,13 +191,13 @@ class CodeReviewRunner {
         this._EnsureSession()
         CodeReviewScript.RunStep3OpenCompare(this.session)
         this.state := CodeReviewRunner.STATE_STEP4_COMPARE
-        this.lastMessage := "Compare screen open. Numpad 5 = next diff. Numpad + = finish and next transport."
+        this.lastMessage := "Compare screen open. Numpad 5 = next diff. Numpad + = F3, then reopen, then next transport."
         return this.GetState()
     }
 
     _SkipOpenCompare() {
         this.state := CodeReviewRunner.STATE_STEP4_COMPARE
-        this.lastMessage := "Skipped compare open (manual). Numpad 5 = next diff. Numpad + = finish."
+        this.lastMessage := "Skipped compare open (manual). Numpad 5 = next diff. Numpad + = F3 to exit."
         return this.GetState()
     }
 
@@ -200,19 +208,37 @@ class CodeReviewRunner {
         return this.GetState()
     }
 
-    _FinishAndNextTransport() {
+    _PressF3AfterCompare() {
         this._EnsureSession()
-        CodeReviewScript.RunStep4Finish(this.session)
+        CodeReviewScript.RunPressF3(this.session)
+        this.state := CodeReviewRunner.STATE_EXIT_AFTER_F3
+        this.lastMessage := "F3 pressed. Numpad + = reopen transport in SE01."
+        return this.GetState()
+    }
+
+    _ReopenCurrentTransport() {
+        state := this.GoCheckpoint0()
+        this.state := CodeReviewRunner.STATE_EXIT_REOPENED
+        state.state := this.state
+        state.stateLabel := CodeReviewRunner._StateLabel(this.state)
+        state.continueHint := CodeReviewRunner._ContinueHint(this.state)
+        state.lastMessage := "Transport reopened. Numpad + = next transport."
+        this.lastMessage := state.lastMessage
+        return state
+    }
+
+    _AdvanceToNextTransport() {
         hadNext := this.transportIndex < this.transports.Length
         if (hadNext) {
             this.transportIndex += 1
         }
         state := this.GoCheckpoint0()
         if (hadNext) {
-            state.lastMessage := "Finished transport. Advanced to " this.GetCurrentTransport() "."
+            state.lastMessage := "Next transport: " this.GetCurrentTransport()
         } else {
-            state.lastMessage := "Finished last transport. Back at checkpoint 0."
+            state.lastMessage := "Last transport — reopened " this.GetCurrentTransport() "."
         }
+        this.lastMessage := state.lastMessage
         return state
     }
 
@@ -257,6 +283,10 @@ class CodeReviewRunner {
                 return "Step 3.2 — open compare or skip"
             case CodeReviewRunner.STATE_STEP4_COMPARE:
                 return "Step 4 — compare differences"
+            case CodeReviewRunner.STATE_EXIT_AFTER_F3:
+                return "Exit — F3 done, reopen transport next"
+            case CodeReviewRunner.STATE_EXIT_REOPENED:
+                return "Exit — transport reopened, next transport next"
             default:
                 return state
         }
@@ -298,7 +328,11 @@ class CodeReviewRunner {
             case CodeReviewRunner.STATE_STEP3_COMPARE_WAIT:
                 return "Numpad + — run step 3.2 (open compare)"
             case CodeReviewRunner.STATE_STEP4_COMPARE:
-                return "Numpad + — close compare, next transport, checkpoint 0"
+                return "Numpad + — press F3 (exit compare)"
+            case CodeReviewRunner.STATE_EXIT_AFTER_F3:
+                return "Numpad + — reopen current transport in SE01"
+            case CodeReviewRunner.STATE_EXIT_REOPENED:
+                return "Numpad + — next transport and reopen in SE01"
             default:
                 return "Numpad + — continue"
         }
