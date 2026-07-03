@@ -1,5 +1,5 @@
 #Requires AutoHotkey v2.0
-#Include ../../src/CodeReviewPlayerGui.ahk
+#Include ../../src/TransportHelferGui.ahk
 
-playerGui := CodeReviewPlayerGui()
-playerGui.Show()
+app := TransportHelferGui()
+app.Show()
