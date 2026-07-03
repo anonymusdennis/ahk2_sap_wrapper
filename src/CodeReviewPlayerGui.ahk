@@ -1,67 +1,85 @@
 #Requires AutoHotkey v2.0
 
-#Include CodeReviewStepEngine.ahk
-#Include Sm30AppPaths.ahk
+#Include CodeReviewRunner.ahk
+#Include CodeReviewAppPaths.ahk
 
-; Step-through SAP transport code review with numpad navigation and preview UI.
+; Dedicated SE01 code review controller with checkpoint navigation.
 class CodeReviewPlayerGui {
     __New() {
         this.policy := SapHookPolicy()
-        this.engine := CodeReviewStepEngine("", this.policy)
+        this.runner := CodeReviewRunner("", "", this.policy)
         this.sessionEntries := []
-        this.selectedSessionEntry := ""
         this.hotkeysActive := false
-        this.lastError := ""
         this._BuildWindow()
     }
 
     Show() {
         this._RefreshSessions()
+        this._LoadDefaultConfig()
         this.mainWin.Show()
     }
 
     _BuildWindow() {
-        mainWin := Gui("+Resize +MinSize760x640", "SAP Code Review Player")
+        mainWin := Gui("+Resize +MinSize820x720", "SE01 Code Review")
         mainWin.SetFont("s10", "Segoe UI")
         mainWin.OnEvent("Close", ObjBindMethod(this, "_OnClose"))
-        mainWin.OnEvent("Size", ObjBindMethod(this, "_OnResize"))
 
-        mainWin.Add("Text", "w720", "Paste SAP Script Recorder output, then step through the review with the numpad.")
-        mainWin.Add("Text", "w720 cGray", "Numpad + / - = next / previous step   |   / / * = next / previous transport")
-        mainWin.Add("Text", "w720 cGray", "Numpad 9 / 3 = fine step forward / back   |   Numpad 6 = skip next step")
+        mainWin.Add("Text", "w780", "Hard-coded SE01 review flow from config/se01_review.json")
+        mainWin.Add("Text", "w780 cGray", "Numpad 0 = checkpoint 0   |   Numpad 1 = checkpoint 1   |   Numpad 5 = action   |   Numpad + = continue")
 
-        mainWin.Add("GroupBox", "xm w740 h110 Section", "SAP session")
+        mainWin.Add("GroupBox", "xm w800 h100 Section", "SAP session")
         mainWin.Add("Text", "xs+20 ys+24 w90", "Session:")
-        this.sessionCombo := mainWin.Add("DropDownList", "x+0 w560 Choose1", ["(no SAP sessions found)"])
+        this.sessionCombo := mainWin.Add("DropDownList", "x+0 w620 Choose1", ["(no SAP sessions found)"])
         this.refreshSessionsBtn := mainWin.Add("Button", "xs+130 y+10 w120", "Refresh list")
         this.refreshSessionsBtn.OnEvent("Click", ObjBindMethod(this, "_RefreshSessions"))
 
-        mainWin.Add("GroupBox", "xm w740 h220 Section", "Script input")
-        mainWin.Add("Text", "xs+20 ys+20 w700", "Paste recorder script (VBS or AHK style):")
-        this.scriptEdit := mainWin.Add("Edit", "xs w700 h130 +VScroll", "")
-        btnRowY := ""
+        mainWin.Add("GroupBox", "xm w800 h170 Section", "Transport list")
+        mainWin.Add("Text", "xs+20 ys+20 w760", "Paste transport IDs (recorder script or one ID per line):")
+        this.transportEdit := mainWin.Add("Edit", "xs w760 h70 +VScroll", "")
         this.loadSampleBtn := mainWin.Add("Button", "xs w140", "Load sample")
-        this.loadSampleBtn.OnEvent("Click", ObjBindMethod(this, "_LoadSampleScript"))
-        this.parseBtn := mainWin.Add("Button", "x+8 w140", "Parse script")
-        this.parseBtn.OnEvent("Click", ObjBindMethod(this, "_ParseScript"))
-        this.startBtn := mainWin.Add("Button", "x+8 w140", "Start review")
-        this.startBtn.OnEvent("Click", ObjBindMethod(this, "_StartReview"))
+        this.loadSampleBtn.OnEvent("Click", ObjBindMethod(this, "_LoadSampleTransports"))
+        this.parseBtn := mainWin.Add("Button", "x+8 w140", "Load transports")
+        this.parseBtn.OnEvent("Click", ObjBindMethod(this, "_LoadTransports"))
 
-        mainWin.Add("GroupBox", "xm w740 h250 Section", "Current position")
-        this.transportText := mainWin.Add("Text", "xs+20 ys+20 w700", "Transport: (none)")
-        this.macroText := mainWin.Add("Text", "xs w700", "Step: (not started)")
-        this.microText := mainWin.Add("Text", "xs w700", "Fine step: (none)")
-        this.statusText := mainWin.Add("Text", "xs w700 h40 +Wrap", "Ready.")
-        mainWin.Add("Text", "xs w700", "Coming next:")
-        this.previewEdit := mainWin.Add("Edit", "xs w700 h110 ReadOnly -VScroll -HScroll", "(parse a script to see upcoming steps)")
+        mainWin.Add("GroupBox", "xm w800 h120 Section", "Active transport")
+        this.transportList := mainWin.Add("ListBox", "xs+20 ys+24 w560 h70")
+        this.transportList.OnEvent("Change", ObjBindMethod(this, "_OnTransportSelected"))
+        this.prevTransportBtn := mainWin.Add("Button", "x+8 yp w100", "Previous")
+        this.prevTransportBtn.OnEvent("Click", ObjBindMethod(this, "_PrevTransport"))
+        this.nextTransportBtn := mainWin.Add("Button", "xp y+8 w100", "Next")
+        this.nextTransportBtn.OnEvent("Click", ObjBindMethod(this, "_NextTransport"))
+        this.transportSummaryText := mainWin.Add("Text", "xs w760", "Transports loaded: 0")
 
-        mainWin.Add("GroupBox", "xm w740 h70 Section", "Hotkeys")
-        this.hotkeyStatusText := mainWin.Add("Text", "xs+20 ys+24 w700", "Hotkeys: inactive until review starts")
-        this.toggleHotkeysBtn := mainWin.Add("Button", "xs w160", "Pause hotkeys")
-        this.toggleHotkeysBtn.Enabled := false
-        this.toggleHotkeysBtn.OnEvent("Click", ObjBindMethod(this, "_ToggleHotkeys"))
+        mainWin.Add("GroupBox", "xm w800 h210 Section", "Review flow")
+        this.stateText := mainWin.Add("Text", "xs+20 ys+24 w760", "State: Idle")
+        this.statusText := mainWin.Add("Text", "xs w760 h36 +Wrap", "Ready.")
+        this.continueHintText := mainWin.Add("Text", "xs w760 cNavy", "")
+        this.actionHintText := mainWin.Add("Text", "xs w760 cTeal", "")
+        this.checkpointHintText := mainWin.Add("Text", "xs w760 cGray", "")
+
+        mainWin.Add("GroupBox", "xm w800 h120 Section", "Controls")
+        cp0Btn := mainWin.Add("Button", "xs+20 ys+28 w150", "Checkpoint 0")
+        cp0Btn.OnEvent("Click", ObjBindMethod(this, "_GoCheckpoint0"))
+        cp1Btn := mainWin.Add("Button", "x+8 w150", "Checkpoint 1")
+        cp1Btn.OnEvent("Click", ObjBindMethod(this, "_GoCheckpoint1"))
+        actionBtn := mainWin.Add("Button", "x+8 w150", "Action (5)")
+        actionBtn.OnEvent("Click", ObjBindMethod(this, "_ActionKey"))
+        continueBtn := mainWin.Add("Button", "x+8 w150", "Continue (+)")
+        continueBtn.OnEvent("Click", ObjBindMethod(this, "_ContinueKey"))
+        this.startBtn := mainWin.Add("Button", "xs+20 y+12 w150", "Start hotkeys")
+        this.startBtn.OnEvent("Click", ObjBindMethod(this, "_StartHotkeys"))
 
         this.mainWin := mainWin
+    }
+
+    _LoadDefaultConfig() {
+        try {
+            reviewDef := CodeReviewConfig.LoadDefault()
+            this.runner.SetReviewDef(reviewDef)
+            this.statusText.Value := "Loaded review config: " reviewDef.label
+        } catch {
+            this.statusText.Value := "Could not load " CodeReviewAppPaths.DefaultReviewConfigPath()
+        }
     }
 
     _RefreshSessions(*) {
@@ -75,177 +93,148 @@ class CodeReviewPlayerGui {
             this.sessionCombo.Add([label])
         }
         this.sessionCombo.Choose(1)
-        if (this.sessionEntries.Length > 0) {
-            this.selectedSessionEntry := this.sessionEntries[1]
-            this.engine.SetSession(this.selectedSessionEntry.session)
-        } else {
-            this.selectedSessionEntry := ""
-            this.engine.SetSession("")
-        }
+        this._SyncSessionFromCombo()
     }
 
-    _ParseScript(*) {
-        this.lastError := ""
-        try {
-            if (this.sessionEntries.Length > 0) {
-                chosen := this.sessionCombo.Text
-                for entry in this.sessionEntries {
-                    if (entry.label = chosen) {
-                        this.selectedSessionEntry := entry
-                        this.engine.SetSession(entry.session)
-                        break
-                    }
-                }
+    _SyncSessionFromCombo() {
+        if (this.sessionEntries.Length = 0) {
+            this.runner.SetSession("")
+            return
+        }
+        chosen := this.sessionCombo.Text
+        for entry in this.sessionEntries {
+            if (entry.label = chosen) {
+                this.runner.SetSession(entry.session)
+                return
             }
-            state := this.engine.LoadScriptText(this.scriptEdit.Value)
+        }
+        this.runner.SetSession(this.sessionEntries[1].session)
+    }
+
+    _LoadTransports(*) {
+        this._SyncSessionFromCombo()
+        try {
+            state := this.runner.LoadTransportsFromText(this.transportEdit.Value)
+            this._RenderTransportList()
             this._RenderState(state)
-            this.statusText.Value := "Parsed " state.macroCount " review steps for transport "
-                . state.transportId "."
+            this.statusText.Value := "Loaded " state.transportCount " transport(s)."
         } catch {
-            this.lastError := "Could not parse script."
-            this.statusText.Value := this.lastError
+            this.statusText.Value := "Could not load transports."
         }
     }
 
-    _StartReview(*) {
-        this._ParseScript()
-        this.engine.StartReview()
-        this._EnableHotkeys(true)
-        this.statusText.Value := "Review started. Use numpad keys to navigate."
-        this._RenderState(this.engine.GetState())
-    }
-
-    _LoadSampleScript(*) {
-        samplePath := Sm30AppPaths.DataDir() "\sample_se01_review.txt"
+    _LoadSampleTransports(*) {
+        samplePath := CodeReviewAppPaths.DataDir() "\sample_transports.txt"
         try {
-            parsed := CodeReviewScriptParser.ParseFile(samplePath)
             file := FileOpen(samplePath, "r", "UTF-8")
-            this.scriptEdit.Value := file.Read()
+            this.transportEdit.Value := file.Read()
             file.Close()
-            this.statusText.Value := "Loaded sample script (" parsed.microSteps.Length " fine steps)."
+            this.statusText.Value := "Loaded sample transport list."
         } catch {
-            this.statusText.Value := "Sample file not found at " samplePath
+            this.transportEdit.Value := "W4DK930869"
+            this.statusText.Value := "Using built-in sample transport ID."
         }
     }
 
-    _RenderState(state) {
-        transportLine := "Transport " state.transportIndex " / " state.transportCount
-            . " — " state.transportId
-        this.transportText.Value := transportLine
-        macroLine := "Step " state.macroIndex " / " state.macroCount " — " state.macroLabel
-        if (state.macroGroup != "") {
-            macroLine .= "  [" state.macroGroup "]"
+    _RenderTransportList() {
+        this.transportList.Delete()
+        idx := 0
+        for transportId in this.runner.transports {
+            idx += 1
+            marker := idx = this.runner.transportIndex ? ">> " : "   "
+            this.transportList.Add([marker transportId])
         }
-        this.macroText.Value := macroLine
-        microLine := "Fine step " state.microIndex " / " state.microCount
-        if (state.microLabel != "") {
-            microLine .= " — " state.microLabel
+        if (this.runner.transports.Length > 0) {
+            this.transportList.Choose(this.runner.transportIndex)
         }
-        this.microText.Value := microLine
+        this.transportSummaryText.Value := "Transports loaded: " this.runner.transports.Length
+            . "   Active: " this.runner.GetCurrentTransport()
+    }
 
-        previewText := ""
-        if (state.nextMacros.Length = 0) {
-            previewText := "(no further steps)"
-        } else {
-            idx := 0
-            for macro in state.nextMacros {
-                idx += 1
-                previewText .= idx ". " macro.label "`n" macro.preview "`n`n"
-            }
+    _OnTransportSelected(*) {
+        chosenIndex := this.transportList.Value
+        if (chosenIndex >= 1) {
+            this.runner.SetTransportIndex(chosenIndex)
+            this._RenderTransportList()
+            this._RenderState(this.runner.GetState())
         }
-        this.previewEdit.Value := previewText
+    }
+
+    _PrevTransport(*) {
+        this._RunAction(ObjBindMethod(this.runner, "PrevTransport"))
+        this._RenderTransportList()
+    }
+
+    _NextTransport(*) {
+        this._RunAction(ObjBindMethod(this.runner, "NextTransport"))
+        this._RenderTransportList()
+    }
+
+    _GoCheckpoint0(*) {
+        this._RunAction(ObjBindMethod(this.runner, "GoCheckpoint0"))
+    }
+
+    _GoCheckpoint1(*) {
+        this._RunAction(ObjBindMethod(this.runner, "GoCheckpoint1"))
+    }
+
+    _ActionKey(*) {
+        this._RunAction(ObjBindMethod(this.runner, "ActionKey"))
+    }
+
+    _ContinueKey(*) {
+        this._RunAction(ObjBindMethod(this.runner, "ContinueKey"))
+    }
+
+    _StartHotkeys(*) {
+        this._EnableHotkeys(true)
+        this.statusText.Value := "Hotkeys active."
     }
 
     _EnableHotkeys(enable) {
         if (enable && !this.hotkeysActive) {
-            Hotkey("NumpadAdd", ObjBindMethod(this, "_HotkeyNextMacro"))
-            Hotkey("NumpadSub", ObjBindMethod(this, "_HotkeyPrevMacro"))
-            Hotkey("NumpadDiv", ObjBindMethod(this, "_HotkeyNextTransport"))
-            Hotkey("NumpadMult", ObjBindMethod(this, "_HotkeyPrevTransport"))
-            Hotkey("Numpad9", ObjBindMethod(this, "_HotkeyNextMicro"))
-            Hotkey("Numpad6", ObjBindMethod(this, "_HotkeySkipMacro"))
-            Hotkey("Numpad3", ObjBindMethod(this, "_HotkeyPrevMicro"))
+            Hotkey("Numpad0", ObjBindMethod(this, "_GoCheckpoint0"))
+            Hotkey("Numpad1", ObjBindMethod(this, "_GoCheckpoint1"))
+            Hotkey("Numpad5", ObjBindMethod(this, "_ActionKey"))
+            Hotkey("NumpadAdd", ObjBindMethod(this, "_ContinueKey"))
             this.hotkeysActive := true
-            this.hotkeyStatusText.Value := "Hotkeys: active (works while this tool is running)"
-            this.toggleHotkeysBtn.Enabled := true
-            this.toggleHotkeysBtn.Text := "Pause hotkeys"
+            this.startBtn.Text := "Hotkeys active"
             return
         }
         if (!enable && this.hotkeysActive) {
+            Hotkey("Numpad0", "Off")
+            Hotkey("Numpad1", "Off")
+            Hotkey("Numpad5", "Off")
             Hotkey("NumpadAdd", "Off")
-            Hotkey("NumpadSub", "Off")
-            Hotkey("NumpadDiv", "Off")
-            Hotkey("NumpadMult", "Off")
-            Hotkey("Numpad9", "Off")
-            Hotkey("Numpad6", "Off")
-            Hotkey("Numpad3", "Off")
             this.hotkeysActive := false
-            this.hotkeyStatusText.Value := "Hotkeys: paused"
-            this.toggleHotkeysBtn.Text := "Resume hotkeys"
+            this.startBtn.Text := "Start hotkeys"
         }
     }
 
-    _ToggleHotkeys(*) {
-        if (this.hotkeysActive) {
-            this._EnableHotkeys(false)
-        } else {
-            this._EnableHotkeys(true)
-        }
-    }
-
-    _HotkeyNextMacro(*) {
-        this._RunNavigationAction(ObjBindMethod(this.engine, "NextMacro"))
-    }
-
-    _HotkeyPrevMacro(*) {
-        this._RunNavigationAction(ObjBindMethod(this.engine, "PrevMacro"))
-    }
-
-    _HotkeyNextTransport(*) {
-        this._RunNavigationAction(ObjBindMethod(this.engine, "NextTransport"))
-    }
-
-    _HotkeyPrevTransport(*) {
-        this._RunNavigationAction(ObjBindMethod(this.engine, "PrevTransport"))
-    }
-
-    _HotkeyNextMicro(*) {
-        this._RunNavigationAction(ObjBindMethod(this.engine, "NextMicro"))
-    }
-
-    _HotkeyPrevMicro(*) {
-        this._RunNavigationAction(ObjBindMethod(this.engine, "PrevMicro"))
-    }
-
-    _HotkeySkipMacro(*) {
-        this._RunNavigationAction(ObjBindMethod(this.engine, "SkipNextMacro"))
-    }
-
-    _RunNavigationAction(actionFn) {
-        this.lastError := ""
+    _RunAction(actionFn) {
+        this._SyncSessionFromCombo()
         try {
             state := actionFn.Call()
             this._RenderState(state)
-            this.statusText.Value := "OK — " state.macroLabel
+            this.statusText.Value := state.lastMessage
         } catch {
-            this.lastError := "SAP step failed. Check session, screen state, and scripting."
-            this.statusText.Value := this.lastError
+            this.statusText.Value := "SAP action failed. Check session, screen, and scripting."
+        }
+    }
+
+    _RenderState(state) {
+        this.stateText.Value := "State: " state.stateLabel
+        this.continueHintText.Value := state.continueHint
+        this.actionHintText.Value := state.actionHint
+        this.checkpointHintText.Value := state.checkpointHint
+        if (state.transportCount > 0) {
+            this.transportSummaryText.Value := "Transports: " state.transportIndex " / "
+                state.transportCount "   Active: " state.transportId
         }
     }
 
     _OnClose(*) {
         this._EnableHotkeys(false)
         ExitApp()
-    }
-
-    _OnResize(senderGui, minMax, width, height, *) {
-        if (minMax = -1) {
-            return
-        }
-        margin := 20
-        contentWidth := width - (margin * 2)
-        if (contentWidth < 400) {
-            contentWidth := 400
-        }
     }
 }
