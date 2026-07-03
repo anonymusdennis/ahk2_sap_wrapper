@@ -11,9 +11,12 @@ This repository is a **long-lived home for AutoHotkey v2 tools that automate SAP
 | Layer | Location | Role |
 |-------|----------|------|
 | SAP wrapper library | `src/SapWrapper.ahk`, `src/core/`, `src/types/` | Typed, hookable COM proxy for SAP GUI Scripting |
+| SAP wrapper v2 layer | `src/SapWrapper2.ahk`, `src/generated/TypedWrappers.ahk`, `src/core/Sap.ahk`, `src/core/SapHookPolicy2.ahk` | Full typed object model, `Sap.Attach()`, stale-reference recovery, extra hooks — v1 stays untouched |
+| Generated files | `src/generated/` | **Do not edit by hand** — regenerate with `python scripts/generate_allowlists.py` |
 | Shared utilities | `src/Sm30AppPaths.ahk`, `src/Sm30JsonConfig.ahk`, `src/core/SapFileLogger.ahk`, … | Reuse across tools where applicable |
 | Runnable tools | `examples/<tool-name>/` | One folder per tool: launcher `.ahk2`, `config/`, `data/`, runtime `logs/` |
 | One-off / demo scripts | `examples/*.ahk2` | Small scripts not tied to a full tool folder |
+| Tests | `tests/run_tests.ahk2` | Headless unit tests (fake COM objects); run by CI |
 | Reference docs | `task.md`, `sap_gui_scripting_api_*.md` | Wrapper design and SAP API allowlists |
 
 When adding a **new tool**, prefer:

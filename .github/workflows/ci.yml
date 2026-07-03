@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install AutoHotkey v2
+        shell: pwsh
+        run: |
+          $url = 'https://github.com/AutoHotkey/AutoHotkey/releases/download/v2.0.19/AutoHotkey_2.0.19.zip'
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\ahk.zip"
+          Expand-Archive "$env:RUNNER_TEMP\ahk.zip" -DestinationPath "$env:RUNNER_TEMP\ahk"
+          Add-Content -Path $env:GITHUB_PATH -Value "$env:RUNNER_TEMP\ahk"
+
+      - name: Check generated files are up to date
+        shell: pwsh
+        run: |
+          python scripts/generate_allowlists.py
+          git diff --exit-code -- src/generated
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host 'src/generated is stale. Run: python scripts/generate_allowlists.py'
+            exit 1
+          }
+
+      - name: Syntax-check AHK scripts
+        shell: pwsh
+        run: |
+          $entries = @(
+            'src\SapWrapper.ahk',
+            'src\SapWrapper2.ahk',
+            'src\Sm30BulkLoader.ahk',
+            'src\Sm30BulkImportGui.ahk',
+            'src\Sm30ExcelImport.ahk',
+            'src\Sm30JsonConfig.ahk',
+            'src\Sm30SapSessions.ahk',
+            'src\Sm30TableCatalog.ahk',
+            'tests\run_tests.ahk2'
+          )
+          $entries += Get-ChildItem examples -Recurse -Filter *.ahk2 | ForEach-Object { $_.FullName }
+          $failed = $false
+          foreach ($f in $entries) {
+            & AutoHotkey64.exe /ErrorStdOut /validate $f 2>&1 | Write-Output
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "SYNTAX FAIL: $f"
+              $failed = $true
+            } else {
+              Write-Host "OK: $f"
+            }
+          }
+          if ($failed) { exit 1 }
+
+      - name: Run headless tests
+        shell: pwsh
+        run: |
+          & AutoHotkey64.exe /ErrorStdOut tests\run_tests.ahk2 2>&1 | Write-Output
+          exit $LASTEXITCODE

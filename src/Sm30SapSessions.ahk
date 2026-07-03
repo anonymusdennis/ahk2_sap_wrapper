@@ -4,11 +4,22 @@
 
 ; Enumerate open SAP GUI sessions for picker UIs.
 class Sm30SapSessions {
+    ; Human-readable description of the last List()/GetActiveSession()
+    ; failure ("" when the last call succeeded). Lets UIs distinguish
+    ; "no sessions open" from "could not attach to SAP GUI".
+    static lastError := ""
+
     static List(policy := "") {
         hookPolicy := IsObject(policy) ? policy : SapHookPolicy()
         entries := []
+        Sm30SapSessions.lastError := ""
         try {
             sapGuiAuto := ComObjGet("SAPGUI")
+        } catch {
+            Sm30SapSessions.lastError := "Could not attach to SAP GUI (SAPGUI object not running or scripting disabled)."
+            return entries
+        }
+        try {
             app := GuiApplication(sapGuiAuto.GetScriptingEngine, hookPolicy)
             connectionCount := app.Children.Length
             loop connectionCount {
@@ -28,17 +39,20 @@ class Sm30SapSessions {
                 }
             }
         } catch {
+            Sm30SapSessions.lastError := "SAP GUI is running but sessions could not be enumerated (scripting engine error)."
         }
         return entries
     }
 
     static GetActiveSession(policy := "") {
         hookPolicy := IsObject(policy) ? policy : SapHookPolicy()
+        Sm30SapSessions.lastError := ""
         try {
             sapGuiAuto := ComObjGet("SAPGUI")
             app := GuiApplication(sapGuiAuto.GetScriptingEngine, hookPolicy)
             return app.ActiveSession
         } catch {
+            Sm30SapSessions.lastError := "Could not attach to SAP GUI (SAPGUI object not running or scripting disabled)."
         }
         return ""
     }

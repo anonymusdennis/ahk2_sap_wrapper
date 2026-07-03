@@ -24,6 +24,47 @@ See `/examples/demo_rot_attach.ahk2` for a runnable example.
 
 Runnable scripts use the `.ahk2` extension so they launch with AutoHotkey v2. Library/includes stay as `.ahk`.
 
+## v2 API
+
+`src/SapWrapper2.ahk` layers additional features on top of the same core. **v1 scripts keep working unchanged** — including `src/SapWrapper.ahk` gives you exactly the v1 behavior. Including `src/SapWrapper2.ahk` adds:
+
+- **Typed wrapper classes for the full SAP GUI Scripting object model** (`src/generated/TypedWrappers.ahk`, ~60 classes such as `GuiTableControl`, `GuiGridView`, `GuiMainWindow`, `GuiTextField`, …) with explicit properties/methods for autocomplete. Wrapped COM return values automatically use them.
+- **Enum constants** (`GuiEventType`, `GuiMessageBoxType`, `GuiScrollbarType`, …) plus a `TypeAsNumber` fallback for type detection when `.Type` is unavailable.
+- **`Sap.Attach()` / `Sap.App()`** convenience roots:
+
+```ahk
+#Requires AutoHotkey v2.0
+#Include src/SapWrapper2.ahk
+
+ses := Sap.Attach()            ; active session
+ses := Sap.Attach(policy, 0, 1) ; connection 0 / session 1
+```
+
+- **Opt-in stale-reference recovery** — `proxy.SetStaleRecovery(true)` makes proxies re-resolve themselves via their `FindById` origin and retry once when a call fails after a SAP round trip.
+- **Richer error context** — `FindById` failures are probed with `FindById(id, false)` and classified as `not-found` / `transient` / `com-error` in the error message.
+- **`SapHookPolicy2`** — adds `On_Retry`, `On_ErrorEx(info)` (structured error Map), and an `On_Popup` hook point. All policies are duck-typed; plain v1 `SapHookPolicy` objects remain accepted everywhere.
+- **Collections are iterable** — `for item in session.Children` and `for index, item in collection` (0-based) work, and indexing falls back from `Item()` to `ElementAt()` without firing error hooks.
+
+### Regenerating the generated files
+
+`src/generated/Allowlists.ahk`, `src/generated/TypeNumbers.ahk` and `src/generated/TypedWrappers.ahk` are produced from the condensed API index:
+
+```text
+python scripts/generate_allowlists.py
+```
+
+The generator handles doc quirks (the `theGuiVContainer` typo, multi-base "Inherits members from" comments) and synthesizes `GuiTextField`, which is missing from the condensed index. CI fails if the generated files are stale.
+
+## Tests and CI
+
+Headless unit tests (no SAP GUI required — COM objects are faked) live in `tests/run_tests.ahk2`:
+
+```text
+AutoHotkey64.exe /ErrorStdOut tests\run_tests.ahk2
+```
+
+GitHub Actions (`.github/workflows/ci.yml`) syntax-checks all entry scripts, verifies `src/generated/` is up to date, and runs the tests on a Windows runner.
+
 ## SM30 bulk table fill
 
 Use `Sm30BulkLoader` to insert many rows into any SM30 maintenance view. By default it fills **one visible page at a time** (column-major, one Enter per page) for much better speed than row-by-row mode.
