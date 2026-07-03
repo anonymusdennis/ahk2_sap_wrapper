@@ -74,6 +74,12 @@ class TransportHelfer {
         return { ok: true, message: "Release steps executed for " this.GetCurrentTransport() "." }
     }
 
+    RunCompareShortcut() {
+        this._EnsureSession()
+        TransportHelferScript.RunCompareShortcut(this.session)
+        return { ok: true, message: "Compare shortcut executed." }
+    }
+
     GetState() {
         return {
             transportIndex: this.transportIndex,

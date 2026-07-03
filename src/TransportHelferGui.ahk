@@ -21,7 +21,7 @@ class TransportHelferGui {
         mainWin.SetFont("s10", "Segoe UI")
         mainWin.OnEvent("Close", ObjBindMethod(this, "_OnClose"))
 
-        mainWin.Add("Text", "w600", "Numpad 1 = open transport in SE01   |   Numpad 2 = release   |   Numpad 3 = next transport")
+        mainWin.Add("Text", "w600", "Numpad 0 = compare shortcut   |   1 = open   |   2 = release   |   3 = next transport")
 
         mainWin.Add("GroupBox", "xm w620 h90 Section", "SAP session")
         mainWin.Add("Text", "xs+20 ys+24 w70", "Session:")
@@ -120,6 +120,10 @@ class TransportHelferGui {
         this._RunSapAction(ObjBindMethod(this.helper, "ReleaseCurrentTransport"))
     }
 
+    _CompareShortcut(*) {
+        this._RunSapAction(ObjBindMethod(this.helper, "RunCompareShortcut"))
+    }
+
     _NextTransport(*) {
         this.helper.NextTransport()
         this._RenderList()
@@ -139,11 +143,13 @@ class TransportHelferGui {
 
     _EnableHotkeys(enable) {
         if (enable) {
+            Hotkey("Numpad0", ObjBindMethod(this, "_CompareShortcut"))
             Hotkey("Numpad1", ObjBindMethod(this, "_OpenTransport"))
             Hotkey("Numpad2", ObjBindMethod(this, "_ReleaseTransport"))
             Hotkey("Numpad3", ObjBindMethod(this, "_NextTransport"))
             return
         }
+        Hotkey("Numpad0", "Off")
         Hotkey("Numpad1", "Off")
         Hotkey("Numpad2", "Off")
         Hotkey("Numpad3", "Off")
