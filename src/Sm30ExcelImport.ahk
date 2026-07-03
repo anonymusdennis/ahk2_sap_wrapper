@@ -68,7 +68,10 @@ class Sm30ExcelImport {
 
     static _ReadWorksheetRows(worksheet, columnCount, hasHeader) {
         rows := []
-        usedRows := worksheet.UsedRange.Rows.Count
+        ; Index cells relative to UsedRange so data not starting at A1 is
+        ; still read correctly.
+        usedRange := worksheet.UsedRange
+        usedRows := usedRange.Rows.Count
         startRow := hasHeader ? 2 : 1
         if (usedRows < startRow) {
             return rows
@@ -79,8 +82,7 @@ class Sm30ExcelImport {
             rowValues := []
             hasData := false
             loop columnCount {
-                cellValue := worksheet.Cells(rowNumber, A_Index).Text
-                cellText := Trim(String(cellValue))
+                cellText := Sm30ExcelImport._CellValueText(usedRange.Cells(rowNumber, A_Index))
                 if (cellText != "") {
                     hasData := true
                 }
@@ -91,6 +93,29 @@ class Sm30ExcelImport {
             }
         }
         return rows
+    }
+
+    ; Reads a cell via .Value (not .Text) so column width / display format
+    ; cannot corrupt the data (e.g. "####" for narrow columns). Whole
+    ; numbers come back from COM as floats and are normalized to integers.
+    static _CellValueText(cell) {
+        cellValue := ""
+        try {
+            cellValue := cell.Value
+        } catch {
+            try {
+                cellValue := cell.Text
+            } catch {
+                cellValue := ""
+            }
+        }
+        if (cellValue = "") {
+            return ""
+        }
+        if (IsNumber(cellValue) && IsFloat(cellValue) && cellValue = Floor(cellValue)) {
+            return String(Integer(cellValue))
+        }
+        return Trim(String(cellValue))
     }
 
     static _FindWorksheet(workbook, sheetName) {

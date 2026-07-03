@@ -538,18 +538,12 @@ class Sm30BulkLoader {
 
     LoadCsv(csvPath, columns, hasHeader := true, delimiter := ",") {
         rows := []
-        lineNumber := 0
-        for line in StrSplit(FileRead(csvPath), "`n", "`r") {
-            lineNumber += 1
-            trimmed := Trim(line)
-            if (trimmed = "") {
+        recordNumber := 0
+        for fields in this._ParseCsvText(FileRead(csvPath), delimiter) {
+            recordNumber += 1
+            if (hasHeader && recordNumber = 1) {
                 continue
             }
-            if (hasHeader && lineNumber = 1) {
-                continue
-            }
-
-            fields := this._ParseCsvLine(trimmed, delimiter)
             rowValues := []
             for columnDef in columns {
                 sourceIndex := columnDef.HasOwnProp("csvIndex")
@@ -946,29 +940,80 @@ class Sm30BulkLoader {
         return skipCount
     }
 
-    _ParseCsvLine(line, delimiter) {
+    ; Full CSV parser (RFC 4180 style): handles quoted fields, escaped
+    ; quotes ("") and newlines inside quoted fields. Returns an array of
+    ; records; each record is an array of field strings. Empty records
+    ; (blank lines) are skipped.
+    _ParseCsvText(text, delimiter := ",") {
+        records := []
         fields := []
         current := ""
+        fieldHasContent := false
         inQuotes := false
-        lineLen := StrLen(line)
-        loop lineLen {
-            char := SubStr(line, A_Index, 1)
-            if (char = '"') {
-                if (inQuotes && A_Index < lineLen && SubStr(line, A_Index + 1, 1) = '"') {
-                    current .= '"'
+        textLen := StrLen(text)
+        i := 1
+        while (i <= textLen) {
+            char := SubStr(text, i, 1)
+            if (inQuotes) {
+                if (char = '"') {
+                    if (i < textLen && SubStr(text, i + 1, 1) = '"') {
+                        current .= '"'
+                        i += 2
+                        continue
+                    }
+                    inQuotes := false
+                    i += 1
                     continue
                 }
-                inQuotes := !inQuotes
+                current .= char
+                i += 1
                 continue
             }
-            if (!inQuotes && char = delimiter) {
+            if (char = '"') {
+                inQuotes := true
+                fieldHasContent := true
+                i += 1
+                continue
+            }
+            if (char = delimiter) {
                 fields.Push(current)
                 current := ""
+                fieldHasContent := true
+                i += 1
+                continue
+            }
+            if (char = "`r" || char = "`n") {
+                if (char = "`r" && i < textLen && SubStr(text, i + 1, 1) = "`n") {
+                    i += 1
+                }
+                if (fields.Length > 0 || fieldHasContent || current != "") {
+                    fields.Push(current)
+                    records.Push(fields)
+                }
+                fields := []
+                current := ""
+                fieldHasContent := false
+                i += 1
                 continue
             }
             current .= char
+            fieldHasContent := true
+            i += 1
         }
-        fields.Push(current)
-        return fields
+        if (fields.Length > 0 || fieldHasContent || current != "") {
+            fields.Push(current)
+            records.Push(fields)
+        }
+        return records
+    }
+
+    ; Single-line CSV split (no embedded newlines). Kept for backward
+    ; compatibility; prefer _ParseCsvText for whole files.
+    _ParseCsvLine(line, delimiter) {
+        records := this._ParseCsvText(line, delimiter)
+        if (records.Length = 0) {
+            return [""]
+        }
+        return records[1]
     }
 }

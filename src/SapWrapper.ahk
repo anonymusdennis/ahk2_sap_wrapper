@@ -1,6 +1,7 @@
 #Requires AutoHotkey v2.0
 
 #Include generated/Allowlists.ahk
+#Include generated/TypeNumbers.ahk
 #Include core/SapHookPolicy.ahk
 #Include core/SapTypeRegistry.ahk
 #Include core/SapComProxy.ahk

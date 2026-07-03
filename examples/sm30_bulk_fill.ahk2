@@ -27,7 +27,7 @@ try {
     ]
 
     ; Optional CSV input:
-    ; csvPath := A_ScriptDir "\data\pfepruntype.csv"
+    ; csvPath := A_ScriptDir "\sm30\data\pfepruntype_sample.csv"
     ; rows := loader.LoadCsv(csvPath, columns, true)
 
     loader

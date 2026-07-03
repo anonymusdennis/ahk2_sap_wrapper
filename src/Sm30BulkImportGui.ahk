@@ -220,6 +220,10 @@ class Sm30BulkImportGui {
         if (sheetName = "" || sheetName = "(select a file first)") {
             return
         }
+        if (sheetName = this.selectedSheet) {
+            ; Rows for this sheet are already loaded; avoid restarting Excel.
+            return
+        }
         this.selectedSheet := sheetName
         this._ScheduleRowReload()
     }
@@ -356,7 +360,11 @@ class Sm30BulkImportGui {
         labels := Sm30SapSessions.GetLabels(this.sessionEntries)
         this.sessionCombo.Delete()
         if (labels.Length = 0) {
-            this.sessionCombo.Add(["(no SAP sessions found — open SAP GUI and log in)"])
+            if (Sm30SapSessions.lastError != "") {
+                this.sessionCombo.Add(["(" Sm30SapSessions.lastError ")"])
+            } else {
+                this.sessionCombo.Add(["(no SAP sessions found — open SAP GUI and log in)"])
+            }
             this.sessionCombo.Choose(1)
             this.sessionCombo.Enabled := false
             return

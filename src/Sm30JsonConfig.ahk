@@ -118,10 +118,25 @@ class Sm30JsonConfig {
     }
 
     static _SetProperty(obj, key, value) {
-        if (!RegExMatch(key, "^[A-Za-z_]\w*$")) {
-            throw Error("Unsupported JSON property name (must be a valid identifier): " key)
+        obj.%Sm30JsonConfig._SanitizeKey(key)% := value
+    }
+
+    ; JSON keys are used as AHK property names. Keys that are not valid
+    ; identifiers (e.g. SAP paths like "/WUE/FIELD-NAME") are sanitized
+    ; instead of aborting the whole config load: invalid characters become
+    ; "_" and a leading digit gets a "_" prefix.
+    static _SanitizeKey(key) {
+        if (RegExMatch(key, "^[A-Za-z_]\w*$")) {
+            return key
         }
-        obj.%key% := value
+        sanitized := RegExReplace(key, "\W", "_")
+        if (RegExMatch(sanitized, "^\d")) {
+            sanitized := "_" sanitized
+        }
+        if (sanitized = "") {
+            sanitized := "_"
+        }
+        return sanitized
     }
 }
 
