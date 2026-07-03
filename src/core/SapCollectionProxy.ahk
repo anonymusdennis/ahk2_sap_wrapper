@@ -22,22 +22,28 @@ class SapCollectionProxy extends SapComProxy {
     ; Enables `for item in collection` and `for index, item in collection`
     ; (indexes are 0-based, matching SAP collection semantics).
     __Enum(numberOfVars) {
-        state := Map("index", 0, "count", this.Count, "collection", this, "vars", numberOfVars)
-        return ObjBindMethod(SapCollectionProxy, "_EnumNext", state)
+        state := Map("index", 0, "count", this.Count, "collection", this)
+        if (numberOfVars >= 2) {
+            return ObjBindMethod(this, "_EnumNext2", state)
+        }
+        return ObjBindMethod(this, "_EnumNext1", state)
     }
 
-    static _EnumNext(state, &var1, args*) {
+    _EnumNext1(state, &item) {
         if (state["index"] >= state["count"]) {
             return false
         }
-        currentIndex := state["index"]
-        item := state["collection"]._GetItemAt(currentIndex)
-        if (state["vars"] >= 2 && args.Length >= 1) {
-            var1 := currentIndex
-            %args[1]% := item
-        } else {
-            var1 := item
+        item := state["collection"]._GetItemAt(state["index"])
+        state["index"] += 1
+        return true
+    }
+
+    _EnumNext2(state, &index, &item) {
+        if (state["index"] >= state["count"]) {
+            return false
         }
+        index := state["index"]
+        item := state["collection"]._GetItemAt(index)
         state["index"] += 1
         return true
     }
