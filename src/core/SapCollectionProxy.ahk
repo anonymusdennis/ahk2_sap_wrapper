@@ -51,14 +51,17 @@ class SapCollectionProxy extends SapComProxy {
     ; Item() with ElementAt() fallback. The probe is done on the raw COM
     ; object so On_Error only fires when both accessors fail.
     _GetItemAt(index) {
-        itemWorks := true
+        ; Probe Item() without triggering error hooks; if it works, reuse the
+        ; result so the COM call only happens once.
         try {
-            this._com.Item(index)
+            raw := this._com.Item(index)
+            args := [index]
+            this._EnsureMemberAllowed("Item")
+            this._CallPolicy("On_Call", "call", "Item", args)
+            wrapped := this._WrapResult("Item", "call", raw, args)
+            this._CallPolicy("After_Call", "call", "Item", wrapped)
+            return wrapped
         } catch {
-            itemWorks := false
-        }
-        if (itemWorks) {
-            return this.InvokeCall("Item", index)
         }
         return this.InvokeCall("ElementAt", index)
     }
