@@ -81,7 +81,9 @@ _OnResize(senderGui, minMax, width, height, *) { }
 On some builds (including **v2.1-alpha**):
 
 - **`obj[key] := value`** on plain **`Object()`** can fail with *no property named `__Item`* — use **`obj.%key% := value`** for identifier keys (`id`, `index`, `kind`, …).
+- **`for key, value in obj`** on plain **`Object()`** can throw *Value not enumerable* — return parser-built objects as-is; only iterate **`Map`** when converting to plain objects.
 - **`HasOwnProp()`** on **`Map`** fails — convert to plain **`Object()`** first or use **`.Has(key)`**.
+- **`<` / `>` on strings** (e.g. `ch < "0"`) can throw *Expected a Number but got a String* — use **`InStr("0123456789", ch)`** for digit checks in parsers.
 - Do not wrap JSON load in a bare `catch { }` that hides the real error.
 
 ---

@@ -107,7 +107,12 @@ class Sm30JsonConfig {
             }
             return converted
         }
-        if (valueType = "Map" || valueType = "Object") {
+        if (valueType = "Object") {
+            ; Parser output is already a plain object (_SetProperty). On v2.1-alpha,
+            ; for-in over Object() throws "Value not enumerable".
+            return value
+        }
+        if (valueType = "Map") {
             converted := Object()
             for key, item in value {
                 Sm30JsonConfig._SetProperty(converted, key, Sm30JsonConfig._ToPlainObject(item))
@@ -206,7 +211,7 @@ class Sm30JsonParser {
         if (ch = "n") {
             return this._ReadNull()
         }
-        if (ch = "-" || (ch >= "0" && ch <= "9")) {
+        if (ch = "-" || this._IsDigit(ch)) {
             return this._ReadNumber()
         }
         this._Fail("Invalid JSON value at position " this.pos)
@@ -228,7 +233,7 @@ class Sm30JsonParser {
                 this._Fail("Expected ':' in JSON object at position " this.pos)
             }
             this.pos += 1
-            obj[key] := this._ReadValue()
+            Sm30JsonConfig._SetProperty(obj, key, this._ReadValue())
             this._SkipWhitespace()
             ch := SubStr(this.text, this.pos, 1)
             if (ch = "}") {
@@ -333,6 +338,10 @@ class Sm30JsonParser {
         this._Fail("Invalid JSON null at position " this.pos)
     }
 
+    _IsDigit(ch) {
+        return ch != "" && InStr("0123456789", ch)
+    }
+
     _ReadNumber() {
         start := this.pos
         if (SubStr(this.text, this.pos, 1) = "-") {
@@ -340,7 +349,7 @@ class Sm30JsonParser {
         }
         while (this.pos <= this.len) {
             ch := SubStr(this.text, this.pos, 1)
-            if (ch < "0" || ch > "9") {
+            if (!this._IsDigit(ch)) {
                 break
             }
             this.pos += 1
@@ -349,7 +358,7 @@ class Sm30JsonParser {
             this.pos += 1
             while (this.pos <= this.len) {
                 ch := SubStr(this.text, this.pos, 1)
-                if (ch < "0" || ch > "9") {
+                if (!this._IsDigit(ch)) {
                     break
                 }
                 this.pos += 1
